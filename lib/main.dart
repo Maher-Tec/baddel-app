@@ -1,0 +1,1975 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:tray_manager/tray_manager.dart';
+import 'package:window_manager/window_manager.dart';
+
+import 'core/detection_engine.dart';
+import 'core/keyboard_layout.dart';
+import 'core/personality.dart';
+import 'core/typing_buffer.dart';
+import 'platform/keyboard_event_decoder.dart';
+import 'platform/keyboard_hook.dart';
+import 'settings/app_settings.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await windowManager.ensureInitialized();
+  final settings = await AppSettings.load();
+  runApp(BaddelApp(settings: settings));
+}
+
+class BaddelApp extends StatelessWidget {
+  BaddelApp({super.key, AppSettings? settings, this.enableDesktopShell = true})
+    : settings = settings ?? AppSettings.inMemory();
+
+  final AppSettings settings;
+  final bool enableDesktopShell;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: settings,
+      builder: (context, _) => MaterialApp(
+        title: 'Baddel!',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          colorScheme: ColorScheme.fromSeed(
+            seedColor: const Color(0xFF0D9488),
+            primary: const Color(0xFF0D9488),
+            secondary: const Color(0xFF0284C7),
+            surface: Colors.white,
+          ),
+          scaffoldBackgroundColor: const Color(0xFFF1F5F9),
+          useMaterial3: true,
+          fontFamily: 'Segoe UI',
+          cardTheme: CardThemeData(
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+              side: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            color: Colors.white,
+          ),
+        ),
+        home: settings.onboardingComplete
+            ? HookTestPage(
+                settings: settings,
+                enableDesktopShell: enableDesktopShell,
+              )
+            : PrivacyOnboardingPage(settings: settings),
+      ),
+    );
+  }
+}
+
+class PrivacyOnboardingPage extends StatelessWidget {
+  const PrivacyOnboardingPage({super.key, required this.settings});
+
+  final AppSettings settings;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(32),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+                side: const BorderSide(color: Color(0xFFCBD5E1)),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(40),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: const Color(0xFF0F766E).withValues(alpha: 0.25),
+                                blurRadius: 14,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: Image.asset(
+                              'assets/logo/logo.png',
+                              width: 72,
+                              height: 72,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 20),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Baddel works locally',
+                              style: Theme.of(context).textTheme.headlineMedium
+                                  ?.copyWith(fontWeight: FontWeight.bold, color: const Color(0xFF0F172A)),
+                            ),
+                            const Text(
+                              'Your keyboard\'s little mistake detector.',
+                              style: TextStyle(color: Color(0xFF0D9488), fontSize: 14, fontWeight: FontWeight.bold),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 32),
+                    const _PrivacyPromise(
+                      icon: Icons.cloud_off_rounded,
+                      title: 'Zero Cloud Transmission',
+                      text: 'Nothing you type is ever uploaded to any server or cloud API.',
+                    ),
+                    const _PrivacyPromise(
+                      icon: Icons.memory_rounded,
+                      title: 'Volatile RAM Only',
+                      text: 'Keystrokes are held in temporary memory for pattern matching only.',
+                    ),
+                    const _PrivacyPromise(
+                      icon: Icons.pause_circle_filled_rounded,
+                      title: 'Instant Control',
+                      text: 'Detection can be paused anytime with a single click or tray toggle.',
+                    ),
+                    const _PrivacyPromise(
+                      icon: Icons.toggle_on_rounded,
+                      title: 'Granular Exclusions',
+                      text: 'Apps like password managers and terminals start excluded by default.',
+                    ),
+                    const SizedBox(height: 20),
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline_rounded, size: 22, color: Color(0xFF0F766E)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Popup warnings start disabled in IDEs & terminals. Manual Ctrl+Alt+B shortcut is always ready.',
+                              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                                color: const Color(0xFF334155),
+                                height: 1.35,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF0F766E),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        onPressed: settings.completeOnboarding,
+                        icon: const Icon(Icons.check_circle_rounded),
+                        label: const Text(
+                          'Continue to Baddel',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PrivacyPromise extends StatelessWidget {
+  const _PrivacyPromise({
+    required this.icon,
+    required this.title,
+    required this.text,
+  });
+
+  final IconData icon;
+  final String title;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFFCCFBF1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: const Color(0xFF0F766E), size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  text,
+                  style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), height: 1.3),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class HookTestPage extends StatefulWidget {
+  const HookTestPage({
+    super.key,
+    required this.settings,
+    this.enableDesktopShell = true,
+  });
+
+  final AppSettings settings;
+  final bool enableDesktopShell;
+
+  @override
+  State<HookTestPage> createState() => _HookTestPageState();
+}
+
+class _HookTestPageState extends State<HookTestPage>
+    with TrayListener, WindowListener {
+  late final KeyboardHookClient _hook;
+  StreamSubscription<KeyboardHookEvent>? _subscription;
+  StreamSubscription<void>? _manualFixSubscription;
+  StreamSubscription<String>? _debugSubscription;
+  StreamSubscription<String>? _warningActionSubscription;
+  KeyboardHookEvent? _lastEvent;
+  String? _error;
+  int _eventCount = 0;
+  bool _isRunning = false;
+  bool _contentionTestMode = false;
+  bool _detectionPaused = false;
+  bool _showDiagnostics = false;
+  final TextEditingController _testInputController = TextEditingController();
+  String _testConvertedOutput = '';
+  final List<String> _debugMessages = [];
+  final TypingBuffer _typingBuffer = TypingBuffer();
+  final DetectionEngine _detector = const DetectionEngine();
+  Timer? _detectionPauseTimer;
+  int? _typingWindow;
+  DetectionResult? _lastDetection;
+  String? _lastWarningTitle;
+  int _consecutiveMistakeStreak = 0;
+  DateTime? _lastMistakeTime;
+  int _warningSelectionUnits = 0;
+  int _warningTrailingUnits = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _detectionPaused = widget.settings.detectionPaused;
+    _hook = KeyboardHookClient();
+    _subscription = _hook.events.listen((event) {
+      if (!mounted) return;
+      _processTypingEvent(event);
+      setState(() {
+        _lastEvent = event;
+        _eventCount++;
+      });
+    });
+    _manualFixSubscription = _hook.manualFixRequests.listen((_) {
+      _correctSelection();
+    });
+    _debugSubscription = _hook.debugMessages.listen((message) {
+      if (!mounted) return;
+      setState(() => _addDebugMessage(message));
+    });
+    _warningActionSubscription = _hook.warningActions.listen(
+      _handleWarningAction,
+    );
+    if (widget.enableDesktopShell) {
+      trayManager.addListener(this);
+      windowManager.addListener(this);
+      unawaited(_initializeDesktopShell());
+    }
+  }
+
+  Future<void> _initializeDesktopShell() async {
+    await windowManager.setPreventClose(true);
+    final executableDirectory = File(Platform.resolvedExecutable).parent.path;
+    final bundledIcon =
+        '$executableDirectory\\data\\flutter_assets\\windows\\runner\\resources\\app_icon.ico';
+    final iconPath = File(bundledIcon).existsSync()
+        ? bundledIcon
+        : 'windows\\runner\\resources\\app_icon.ico';
+    await trayManager.setIcon(iconPath);
+    await trayManager.setToolTip('Baddel! Keyboard language helper');
+    await _updateTrayMenu();
+  }
+
+  Future<void> _updateTrayMenu() async {
+    await trayManager.setContextMenu(
+      Menu(
+        items: [
+          MenuItem(key: 'show', label: 'Open Baddel'),
+          MenuItem(
+            key: 'pause',
+            label: _detectionPaused ? 'Resume detection' : 'Pause detection',
+          ),
+          MenuItem.separator(),
+          MenuItem(key: 'exit', label: 'Exit Baddel'),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void onTrayIconMouseDown() {
+    unawaited(_showWindow());
+  }
+
+  @override
+  void onTrayIconRightMouseDown() {
+    trayManager.popUpContextMenu();
+  }
+
+  @override
+  void onTrayMenuItemClick(MenuItem menuItem) {
+    if (menuItem.key == 'show') {
+      unawaited(_showWindow());
+    } else if (menuItem.key == 'pause') {
+      unawaited(_setDetectionPaused(!_detectionPaused));
+    } else if (menuItem.key == 'exit') {
+      unawaited(_exitApplication());
+    }
+  }
+
+  Future<void> _showWindow() async {
+    await windowManager.show();
+    await windowManager.focus();
+  }
+
+  @override
+  void onWindowClose() {
+    unawaited(windowManager.hide());
+  }
+
+  Future<void> _exitApplication() async {
+    await _hook.stop();
+    await trayManager.destroy();
+    await windowManager.setPreventClose(false);
+    await windowManager.destroy();
+  }
+
+  Future<void> _handleWarningAction(String action) async {
+    if (!mounted) return;
+    if (action == 'fix') {
+      final detection = _lastDetection;
+      final selectionUnits = _warningSelectionUnits;
+      final trailingUnits = _warningTrailingUnits;
+      if (detection == null) return;
+      _detectionPauseTimer?.cancel();
+      _typingBuffer.reset();
+      await _correctSelection(
+        detection: detection,
+        selectionUnits: selectionUnits,
+        trailingUnits: trailingUnits,
+      );
+    } else if (action == 'dismiss') {
+      _detectionPauseTimer?.cancel();
+      _typingBuffer.reset();
+      setState(() {
+        _lastDetection = null;
+        _lastWarningTitle = null;
+        _addDebugMessage('Phase 4 warning dismissed');
+      });
+    } else if (action == 'pause') {
+      await _setDetectionPaused(true);
+    }
+  }
+
+  void _addDebugMessage(String message) {
+    _debugMessages.add(message);
+    if (_debugMessages.length > 100) _debugMessages.removeAt(0);
+  }
+
+  Future<void> _copyDebugLog() async {
+    await Clipboard.setData(ClipboardData(text: _debugMessages.join('\n')));
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Complete debug log copied.')));
+  }
+
+  void _invalidateActiveWarning() {
+    if (_lastDetection == null) return;
+    _hook.hideWarningPopup();
+    setState(() {
+      _lastDetection = null;
+      _lastWarningTitle = null;
+      _warningSelectionUnits = 0;
+      _warningTrailingUnits = 0;
+    });
+  }
+
+  void _processTypingEvent(KeyboardHookEvent event) {
+    if (!event.keyDown || event.injected || _detectionPaused) return;
+
+    if (_typingWindow != event.foregroundWindow) {
+      _invalidateActiveWarning();
+      _typingWindow = event.foregroundWindow;
+      _typingBuffer.reset();
+      _detectionPauseTimer?.cancel();
+      if (!widget.settings.isTargetApp(event.processName)) {
+        _hook.hideWarningPopup();
+      }
+    }
+    if (!widget.settings.isDetectionEnabled(event.processName)) return;
+    if (KeyboardEventDecoder.resetsBuffer(event)) {
+      _invalidateActiveWarning();
+      _typingBuffer.reset();
+      _detectionPauseTimer?.cancel();
+      return;
+    }
+    if (KeyboardEventDecoder.isBackspace(event)) {
+      _typingBuffer.backspace();
+      return;
+    }
+
+    final character = KeyboardEventDecoder.decode(event);
+    if (character == null) return;
+    _invalidateActiveWarning();
+    _typingBuffer.append(character, asSingleCaretUnit: true);
+    final boundary = character.trim().isEmpty;
+    if (_typingBuffer.shouldEvaluate(atWordBoundary: boundary)) {
+      _evaluateTypingBuffer('length/boundary');
+    }
+
+    _detectionPauseTimer?.cancel();
+    if (_typingBuffer.length >= 4) {
+      _detectionPauseTimer = Timer(const Duration(milliseconds: 1500), () {
+        if (mounted) _evaluateTypingBuffer('pause');
+      });
+    }
+  }
+
+  void _evaluateTypingBuffer(String trigger) {
+    if (_typingBuffer.isEmpty) return;
+    final endsTypingBurst = trigger == 'pause';
+    final bufferedText = _typingBuffer.value;
+    _typingBuffer.markEvaluated();
+    final result = _detector.detect(bufferedText);
+    if (result == null) {
+      if (endsTypingBurst) _typingBuffer.reset();
+      return;
+    }
+
+    final percent = (result.confidence * 100).round();
+    if (result.shouldWarn) {
+      final now = DateTime.now();
+      if (_lastMistakeTime != null &&
+          now.difference(_lastMistakeTime!) < const Duration(seconds: 90)) {
+        _consecutiveMistakeStreak++;
+      } else {
+        _consecutiveMistakeStreak = 1;
+      }
+      _lastMistakeTime = now;
+    }
+    final funnyTitle = TunisianPersonality.getMessage(
+      mode: widget.settings.personalityMode,
+      suggestedLanguage: result.suggestedLanguage,
+      typedLength: bufferedText.length,
+      streak: _consecutiveMistakeStreak,
+    );
+    setState(() {
+      _addDebugMessage(
+        'Phase 3 detector ($trigger): $percent% confidence, ${result.shouldWarn ? 'warning' : 'no warning'}',
+      );
+      if (result.shouldWarn) {
+        _lastDetection = result;
+        _lastWarningTitle = funnyTitle;
+        _warningSelectionUnits = _typingBuffer.contentCaretUnitCount;
+        _warningTrailingUnits = _typingBuffer.trailingCaretUnitCount;
+      }
+    });
+    if (endsTypingBurst) {
+      _detectionPauseTimer?.cancel();
+      if (!result.shouldWarn) _typingBuffer.reset();
+    }
+    if (result.shouldWarn) {
+      _hook
+          .showWarningPopup(
+            title: funnyTitle,
+            suggestion: result.suggestion,
+            confidence: percent,
+          )
+          .then((shown) {
+            if (!mounted || shown) return;
+            setState(
+              () => _addDebugMessage('Phase 4 popup could not be shown'),
+            );
+          })
+          .catchError((Object error) {
+            if (!mounted) return;
+            setState(() => _addDebugMessage('Phase 4 popup error: $error'));
+          });
+    }
+  }
+
+  Future<void> _correctSelection({
+    DetectionResult? detection,
+    int selectionUnits = 0,
+    int trailingUnits = 0,
+  }) async {
+    try {
+      final selected = detection == null
+          ? await _hook.captureSelection()
+          : await _hook.captureDetectedText(
+              expected: detection.original,
+              selectionUnits: selectionUnits,
+              trailingUnits: trailingUnits,
+            );
+      if (selected.isEmpty) return;
+      if (detection != null && selected != detection.original) return;
+      setState(
+        () => _addDebugMessage(
+          '2/7 Selection text returned to Flutter (${selected.length} chars)',
+        ),
+      );
+      final hasArabic = RegExp(r'[\u0600-\u06ff]').hasMatch(selected);
+      final direction = hasArabic
+          ? LayoutDirection.arabicToUs
+          : LayoutDirection.usToArabic;
+      final replacement = KeyboardLayout.convert(selected, direction);
+      setState(
+        () => _addDebugMessage(
+          '3/7 Converted using ${hasArabic ? 'Arabic → US' : 'US → Arabic'} (${replacement.length} chars)',
+        ),
+      );
+      final pasted = await _hook.pasteReplacement(replacement);
+      if (pasted && mounted) {
+        setState(() {
+          _lastDetection = null;
+          _lastWarningTitle = null;
+        });
+      }
+      if (!pasted && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Baddel could not replace the selection.'),
+          ),
+        );
+      }
+    } on PlatformException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error.message ?? 'No text selection found.')),
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleHook() async {
+    setState(() => _error = null);
+    try {
+      if (_isRunning) {
+        await _hook.stop();
+        if (mounted) setState(() => _isRunning = false);
+      } else {
+        final started = await _hook.start();
+        if (mounted) setState(() => _isRunning = started);
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = '$error');
+    }
+  }
+
+  Future<void> _setContentionTestMode(bool enabled) async {
+    await _hook.setClipboardRestoreDelay(
+      Duration(milliseconds: enabled ? 2000 : 200),
+    );
+    if (mounted) setState(() => _contentionTestMode = enabled);
+  }
+
+  Future<void> _setDetectionPaused(bool paused) async {
+    _detectionPauseTimer?.cancel();
+    _typingBuffer.reset();
+    if (paused) await _hook.hideWarningPopup();
+    if (!mounted) return;
+    await widget.settings.setDetectionPaused(paused);
+    if (!mounted) return;
+    setState(() {
+      _detectionPaused = paused;
+      _lastDetection = null;
+      _lastWarningTitle = null;
+      _addDebugMessage(
+        paused ? 'Phase 4 detection paused' : 'Phase 4 detection resumed',
+      );
+    });
+    if (widget.enableDesktopShell) await _updateTrayMenu();
+  }
+
+  Future<void> _setAppDetectionEnabled(String processName, bool enabled) async {
+    await widget.settings.setAppDetectionEnabled(processName, enabled);
+    if (!mounted) return;
+    setState(() {
+      _addDebugMessage(
+        'Detection ${enabled ? 'enabled' : 'disabled'} for $processName',
+      );
+    });
+  }
+
+  void _runTestConversion(String text) {
+    if (text.isEmpty) {
+      setState(() => _testConvertedOutput = '');
+      return;
+    }
+    final hasArabic = RegExp(r'[\u0600-\u06ff]').hasMatch(text);
+    final direction = hasArabic
+        ? LayoutDirection.arabicToUs
+        : LayoutDirection.usToArabic;
+    final converted = KeyboardLayout.convert(text, direction);
+    setState(() => _testConvertedOutput = converted);
+  }
+
+  @override
+  void dispose() {
+    _testInputController.dispose();
+    if (widget.enableDesktopShell) {
+      trayManager.removeListener(this);
+      windowManager.removeListener(this);
+    }
+    _subscription?.cancel();
+    _manualFixSubscription?.cancel();
+    _debugSubscription?.cancel();
+    _warningActionSubscription?.cancel();
+    _detectionPauseTimer?.cancel();
+    _hook.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final event = _lastEvent;
+    final processName = event?.processName.isEmpty == false
+        ? event!.processName
+        : 'No foreground process yet';
+    final isTarget =
+        event != null && widget.settings.isTargetApp(event.processName);
+    final detectionEnabled =
+        event != null && widget.settings.isDetectionEnabled(event.processName);
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8FAFC),
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(68),
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: SafeArea(
+            child: Row(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0F766E).withValues(alpha: 0.25),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Image.asset(
+                      'assets/logo/logo.png',
+                      width: 42,
+                      height: 42,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 14),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        'Baddel! Keyboard Language Helper',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF0F172A)),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        'Your keyboard\'s little mistake detector.',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF0D9488), fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+                // Status Badge
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: _isRunning
+                        ? const Color(0xFFECFDF5)
+                        : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: _isRunning
+                          ? const Color(0xFFA7F3D0)
+                          : const Color(0xFFCBD5E1),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                          color: _isRunning
+                              ? const Color(0xFF10B981)
+                              : const Color(0xFF94A3B8),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        _isRunning ? 'Active & Watching' : 'Hook Inactive',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: _isRunning
+                              ? const Color(0xFF047857)
+                              : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1100),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Grand Glassmorphic Hero Banner
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(28),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFF042F2E),
+                        Color(0xFF0F766E),
+                        Color(0xFF0369A1),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0F766E).withValues(alpha: 0.35),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 5,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.18),
+                                        borderRadius: BorderRadius.circular(20),
+                                        border: Border.all(color: Colors.white24),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.auto_awesome, color: Color(0xFF5EEAD4), size: 16),
+                                          SizedBox(width: 6),
+                                          Text(
+                                            'Automatic Layout Fixer',
+                                            style: TextStyle(
+                                              color: Color(0xFF5EEAD4),
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    if (event != null && event.processName.isNotEmpty)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 12,
+                                          vertical: 5,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(alpha: 0.25),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(color: Colors.white12),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.laptop_chromebook, color: Colors.white70, size: 15),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              'Focus: $processName',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      decoration: BoxDecoration(
+                                        borderRadius: BorderRadius.circular(18),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black.withValues(alpha: 0.3),
+                                            blurRadius: 16,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(18),
+                                        child: Image.asset(
+                                          'assets/logo/logo.png',
+                                          width: 64,
+                                          height: 64,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 16),
+                                    const Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Keyboard language protection',
+                                            style: TextStyle(
+                                              fontSize: 28,
+                                              fontWeight: FontWeight.w800,
+                                              color: Colors.white,
+                                              letterSpacing: -0.5,
+                                            ),
+                                          ),
+                                          SizedBox(height: 4),
+                                          Text(
+                                            'Baddel watches enabled apps for text typed with the wrong keyboard layout. Manual correction is always available with Ctrl+Alt+B.',
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              color: Color(0xFFCCFBF1),
+                                              height: 1.45,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 24),
+                          // Big Animated Power Button
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: _toggleHook,
+                              borderRadius: BorderRadius.circular(18),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 24,
+                                  vertical: 18,
+                                ),
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    colors: _isRunning
+                                        ? [const Color(0xFFE11D48), const Color(0xFFF43F5E)]
+                                        : [const Color(0xFF0D9488), const Color(0xFF14B8A6)],
+                                  ),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.3), width: 1.5),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: (_isRunning ? const Color(0xFFF43F5E) : const Color(0xFF14B8A6))
+                                          .withValues(alpha: 0.45),
+                                      blurRadius: 16,
+                                      offset: const Offset(0, 6),
+                                    ),
+                                  ],
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _isRunning ? Icons.stop_circle_rounded : Icons.play_circle_fill_rounded,
+                                      color: Colors.white,
+                                      size: 24,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(
+                                      _isRunning ? 'Stop hook' : 'Start hook',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 22),
+                      Container(height: 1, color: Colors.white.withValues(alpha: 0.15)),
+                      const SizedBox(height: 18),
+                      // 3D Keycap Badges
+                      Wrap(
+                        spacing: 14,
+                        runSpacing: 10,
+                        children: const [
+                          _MacKeycapBadge(
+                            keys: ['Ctrl', 'Alt', 'B'],
+                            action: 'Fix Selection',
+                            description: 'Instant manual correction',
+                          ),
+                          _MacKeycapBadge(
+                            keys: ['Ctrl', 'Alt', 'Z'],
+                            action: 'Baddel Safe Undo',
+                            description: 'Restores original typed text',
+                          ),
+                          _MacKeycapBadge(
+                            keys: ['Ctrl', 'Z'],
+                            action: 'Native Undo',
+                            description: 'Standard editor undo',
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Active Warning Banner (When triggered)
+                if (_lastDetection != null) ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(22),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFFFFFBEB), Color(0xFFFEF3C7)],
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFF59E0B), width: 1.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFDE68A),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(
+                                Icons.sentiment_very_satisfied_rounded,
+                                color: Color(0xFFB45309),
+                                size: 24,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Text(
+                                _lastWarningTitle ?? 'Baddel! 😂 نسيت الكلافيي يا معلم؟',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 18,
+                                  color: Color(0xFF92400E),
+                                ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFB45309),
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Text(
+                                'Confidence: ${(_lastDetection!.confidence * 100).round()}%',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: const Color(0xFFFCD34D)),
+                          ),
+                          child: SelectableText(
+                            _lastDetection!.suggestion,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF1E293B),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
+                // Live Interactive Sandbox ("Jarreb Houni")
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(22),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE0F2FE),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(Icons.touch_app_rounded, color: Color(0xFF0284C7), size: 20),
+                            ),
+                            const SizedBox(width: 12),
+                            const Expanded(
+                              child: Text(
+                                'Interactive Test Sandbox (جرّب هوني)',
+                                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Test conversion live in-app',
+                              style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _testInputController,
+                                onChanged: _runTestConversion,
+                                decoration: InputDecoration(
+                                  hintText: 'Type text here (e.g. "ghk" for "علي" or "مرحبا" in EN)...',
+                                  hintStyle: const TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+                                  filled: true,
+                                  fillColor: const Color(0xFFF8FAFC),
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                                  ),
+                                  enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                    borderSide: const BorderSide(color: Color(0xFFCBD5E1)),
+                                  ),
+                                  prefixIcon: const Icon(Icons.keyboard_outlined, color: Color(0xFF0F766E)),
+                                ),
+                              ),
+                            ),
+                            if (_testInputController.text.isNotEmpty) ...[
+                              const SizedBox(width: 10),
+                              IconButton(
+                                tooltip: 'Clear',
+                                onPressed: () {
+                                  _testInputController.clear();
+                                  _runTestConversion('');
+                                },
+                                icon: const Icon(Icons.clear_rounded, color: Color(0xFF64748B)),
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (_testConvertedOutput.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF0FDFA),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFF99F6E4)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.arrow_forward_rounded, color: Color(0xFF0D9488), size: 18),
+                                const SizedBox(width: 10),
+                                const Text(
+                                  'Converted result: ',
+                                  style: TextStyle(fontSize: 13, color: Color(0xFF0F766E), fontWeight: FontWeight.bold),
+                                ),
+                                SelectableText(
+                                  _testConvertedOutput,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0F766E),
+                                  ),
+                                ),
+                                const Spacer(),
+                                TextButton.icon(
+                                  onPressed: () {
+                                    Clipboard.setData(ClipboardData(text: _testConvertedOutput));
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(content: Text('Copied converted text to clipboard!')),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.copy_rounded, size: 16),
+                                  label: const Text('Copy'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // 2-Column Responsive Dashboard
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isWide = constraints.maxWidth > 840;
+                    return Flex(
+                      direction: isWide ? Axis.horizontal : Axis.vertical,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Left Column: Personality & Status
+                        Expanded(
+                          flex: isWide ? 6 : 0,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Personality Section Header
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFEE2E2),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(Icons.theater_comedy_rounded, color: Color(0xFFE11D48), size: 20),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'Personality & Humor',
+                                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: const Color(0xFF0F172A),
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Choose the humor style for popup warnings and suggestion cards.',
+                                style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                              ),
+                              const SizedBox(height: 14),
+                              // Visual Persona Cards
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(14),
+                                  child: Column(
+                                    children: [
+                                      for (final mode in PersonalityMode.values)
+                                        _ModernPersonaCard(
+                                          mode: mode,
+                                          isSelected: widget.settings.personalityMode == mode,
+                                          onTap: () => widget.settings.setPersonalityMode(mode),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+
+                              // Session Status Card
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(20),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFE0E7FF),
+                                              borderRadius: BorderRadius.circular(10),
+                                            ),
+                                            child: const Icon(Icons.query_stats_rounded, color: Color(0xFF4F46E5), size: 20),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          const Text(
+                                            'Session Status & Activity',
+                                            style: TextStyle(
+                                              fontSize: 16,
+                                              fontWeight: FontWeight.bold,
+                                              color: Color(0xFF0F172A),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Wrap(
+                                        spacing: 12,
+                                        runSpacing: 10,
+                                        children: [
+                                          _StatusMetricChip(
+                                            label: 'Status',
+                                            value: _isRunning ? 'Running' : 'Stopped',
+                                            isPositive: _isRunning,
+                                          ),
+                                          _StatusMetricChip(
+                                            label: 'Events received: $_eventCount',
+                                            value: '$_eventCount events',
+                                          ),
+                                          _StatusMetricChip(
+                                            label: 'Target app',
+                                            value: isTarget ? 'Yes' : 'No',
+                                            isPositive: isTarget,
+                                          ),
+                                          _StatusMetricChip(
+                                            label: 'Popup detection',
+                                            value: detectionEnabled ? 'Enabled' : 'Disabled',
+                                            isPositive: detectionEnabled,
+                                          ),
+                                        ],
+                                      ),
+                                      if (event != null) ...[
+                                        const SizedBox(height: 14),
+                                        Container(
+                                          padding: const EdgeInsets.all(10),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFFF8FAFC),
+                                            borderRadius: BorderRadius.circular(8),
+                                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                                          ),
+                                          child: Text(
+                                            'VK: ${event.virtualKey}  Scan: ${event.scanCode}  Time: ${event.time}',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xFF64748B),
+                                              fontFamily: 'Consolas',
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (isWide) const SizedBox(width: 24),
+                        if (!isWide) const SizedBox(height: 24),
+
+                        // Right Column: Apps & Controls
+                        Expanded(
+                          flex: isWide ? 5 : 0,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // Apps Header
+                              Row(
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFDCFCE7),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: const Icon(Icons.apps_rounded, color: Color(0xFF15803D), size: 20),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Text(
+                                    'Apps',
+                                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: const Color(0xFF0F172A),
+                                      fontSize: 18,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'Choose where automatic warnings appear. Manual correction remains available in supported apps.',
+                                style: TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                              ),
+                              const SizedBox(height: 14),
+                              Card(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  child: Column(
+                                    children: [
+                                      for (final app in AppSettings.targetApps)
+                                        _AppSettingRow(
+                                          app: app,
+                                          isEnabled: widget.settings.detectionEnabledApps.contains(app.processName),
+                                          onChanged: (enabled) => _setAppDetectionEnabled(app.processName, enabled),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Global Pause Switch Card
+                              Card(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                  side: BorderSide(
+                                    color: _detectionPaused ? const Color(0xFFFCA5A5) : const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: SwitchListTile(
+                                  contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+                                  secondary: Container(
+                                    padding: const EdgeInsets.all(10),
+                                    decoration: BoxDecoration(
+                                      color: _detectionPaused
+                                          ? const Color(0xFFFEE2E2)
+                                          : const Color(0xFFDCFCE7),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Icon(
+                                      _detectionPaused
+                                          ? Icons.pause_circle_filled_rounded
+                                          : Icons.play_circle_filled_rounded,
+                                      color: _detectionPaused
+                                          ? const Color(0xFFEF4444)
+                                          : const Color(0xFF16A34A),
+                                    ),
+                                  ),
+                                  title: const Text(
+                                    'Pause keyboard-language detection',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
+                                  subtitle: const Text(
+                                    'Pausing hides warnings but leaves the manual correction shortcut available.',
+                                    style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                                  ),
+                                  value: _detectionPaused,
+                                  onChanged: _setDetectionPaused,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+
+                              // Privacy Card
+                              Container(
+                                padding: const EdgeInsets.all(18),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF0FDF4),
+                                  borderRadius: BorderRadius.circular(18),
+                                  border: Border.all(color: const Color(0xFFBBF7D0)),
+                                ),
+                                child: const Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      Icons.verified_user_rounded,
+                                      color: Color(0xFF16A34A),
+                                      size: 24,
+                                    ),
+                                    SizedBox(width: 14),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            'Privacy Guarantee',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                              color: Color(0xFF166534),
+                                            ),
+                                          ),
+                                          SizedBox(height: 4),
+                                          Text(
+                                            'Privacy: text is analyzed locally, is never uploaded, and is not stored. Password managers and remote-desktop windows are always excluded.',
+                                            style: TextStyle(
+                                              fontSize: 12.5,
+                                              color: Color(0xFF15803D),
+                                              height: 1.4,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 24),
+
+                // Collapsible Developer Diagnostics
+                Card(
+                  child: Theme(
+                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+                    child: ExpansionTile(
+                      initiallyExpanded: _showDiagnostics,
+                      onExpansionChanged: (expanded) => setState(() => _showDiagnostics = expanded),
+                      leading: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.terminal_rounded, color: Color(0xFF475569), size: 20),
+                      ),
+                      title: const Text(
+                        'Developer diagnostics',
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      subtitle: const Text(
+                        'Debug log and clipboard contention diagnostics',
+                        style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SwitchListTile(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Clipboard contention test mode', style: TextStyle(fontWeight: FontWeight.w600)),
+                                subtitle: const Text(
+                                  'Uses a 2-second restore window so you can copy new content and verify Baddel does not overwrite it.',
+                                  style: TextStyle(fontSize: 12),
+                                ),
+                                value: _contentionTestMode,
+                                onChanged: _setContentionTestMode,
+                              ),
+                              if (_error != null) ...[
+                                const SizedBox(height: 8),
+                                Text(_error!, style: const TextStyle(color: Colors.red)),
+                              ],
+                              const SizedBox(height: 14),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text(
+                                    'Debug log',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
+                                  FilledButton.tonalIcon(
+                                    onPressed: _debugMessages.isEmpty ? null : _copyDebugLog,
+                                    icon: const Icon(Icons.copy_all_rounded, size: 16),
+                                    label: const Text('Copy all'),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              Container(
+                                width: double.infinity,
+                                constraints: const BoxConstraints(minHeight: 200, maxHeight: 380),
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF0F172A),
+                                  borderRadius: BorderRadius.circular(14),
+                                  border: Border.all(color: const Color(0xFF1E293B)),
+                                ),
+                                child: SingleChildScrollView(
+                                  child: SelectableText(
+                                    _debugMessages.isEmpty
+                                        ? 'No debug messages yet.'
+                                        : _debugMessages.join('\n'),
+                                    style: const TextStyle(
+                                      color: Color(0xFF38BDF8),
+                                      fontSize: 12.5,
+                                      fontFamily: 'Consolas',
+                                      height: 1.45,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 14),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ModernPersonaCard extends StatelessWidget {
+  const _ModernPersonaCard({
+    required this.mode,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  final PersonalityMode mode;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final sampleQuote = TunisianPersonality.getMessage(mode: mode, indexSeed: 0);
+
+    Color accentColor;
+    IconData icon;
+    String badgeEmoji;
+
+    switch (mode) {
+      case PersonalityMode.weldElHouma:
+        accentColor = const Color(0xFFE11D48);
+        icon = Icons.local_fire_department_rounded;
+        badgeEmoji = '🌶️';
+        break;
+      case PersonalityMode.devTanbir:
+        accentColor = const Color(0xFF0284C7);
+        icon = Icons.terminal_rounded;
+        badgeEmoji = '💻';
+        break;
+      case PersonalityMode.tunisianFunny:
+        accentColor = const Color(0xFFD97706);
+        icon = Icons.sentiment_very_satisfied_rounded;
+        badgeEmoji = '😂';
+        break;
+      case PersonalityMode.classic:
+        accentColor = const Color(0xFF475569);
+        icon = Icons.tune_rounded;
+        badgeEmoji = '👔';
+        break;
+    }
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: isSelected ? accentColor.withValues(alpha: 0.06) : Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? accentColor : const Color(0xFFE2E8F0),
+            width: isSelected ? 2 : 1,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: accentColor.withValues(alpha: 0.12),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: isSelected ? accentColor : accentColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Icon(
+                    icon,
+                    size: 20,
+                    color: isSelected ? Colors.white : accentColor,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            mode.label,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                              color: isSelected ? const Color(0xFF0F172A) : const Color(0xFF334155),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(badgeEmoji, style: const TextStyle(fontSize: 14)),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        mode.description,
+                        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: isSelected ? accentColor : Colors.transparent,
+                    border: Border.all(
+                      color: isSelected ? accentColor : const Color(0xFFCBD5E1),
+                      width: 2,
+                    ),
+                  ),
+                  child: isSelected
+                      ? const Icon(Icons.check, size: 13, color: Colors.white)
+                      : null,
+                ),
+              ],
+            ),
+            if (isSelected) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: accentColor.withValues(alpha: 0.25)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.chat_bubble_outline_rounded, size: 14, color: Color(0xFF64748B)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Sample: "$sampleQuote"',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: accentColor,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AppSettingRow extends StatelessWidget {
+  const _AppSettingRow({
+    required this.app,
+    required this.isEnabled,
+    required this.onChanged,
+  });
+
+  final BaddelTargetApp app;
+  final bool isEnabled;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    Color iconBg;
+    IconData icon;
+
+    if (app.processName == 'notepad.exe') {
+      iconBg = const Color(0xFFFEF3C7);
+      icon = Icons.edit_note_rounded;
+    } else if (app.processName == 'chrome.exe') {
+      iconBg = const Color(0xFFE0F2FE);
+      icon = Icons.public_rounded;
+    } else if (app.processName == 'code.exe') {
+      iconBg = const Color(0xFFE0E7FF);
+      icon = Icons.code_rounded;
+    } else if (app.processName == 'windowsterminal.exe') {
+      iconBg = const Color(0xFFF1F5F9);
+      icon = Icons.terminal_rounded;
+    } else if (app.processName == 'winword.exe') {
+      iconBg = const Color(0xFFDBEAFE);
+      icon = Icons.description_rounded;
+    } else {
+      iconBg = const Color(0xFFF3E8FF);
+      icon = Icons.article_rounded;
+    }
+
+    return SwitchListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 2),
+      secondary: Container(
+        padding: const EdgeInsets.all(9),
+        decoration: BoxDecoration(
+          color: iconBg,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, size: 20, color: const Color(0xFF0F172A)),
+      ),
+      title: Text(
+        app.label,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: Color(0xFF0F172A)),
+      ),
+      subtitle: Text(
+        '${app.category} · ${app.processName}',
+        style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+      ),
+      value: isEnabled,
+      onChanged: onChanged,
+    );
+  }
+}
+
+class _MacKeycapBadge extends StatelessWidget {
+  const _MacKeycapBadge({
+    required this.keys,
+    required this.action,
+    required this.description,
+  });
+
+  final List<String> keys;
+  final String action;
+  final String description;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 0; i < keys.length; i++) ...[
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: const [
+                  BoxShadow(
+                    color: Colors.black26,
+                    offset: Offset(0, 2),
+                    blurRadius: 2,
+                  ),
+                ],
+              ),
+              child: Text(
+                keys[i],
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F766E),
+                ),
+              ),
+            ),
+            if (i < keys.length - 1)
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  '+',
+                  style: TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                ),
+              ),
+          ],
+          const SizedBox(width: 10),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                action,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                description,
+                style: const TextStyle(
+                  color: Color(0xFF99F6E4),
+                  fontSize: 10.5,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatusMetricChip extends StatelessWidget {
+  const _StatusMetricChip({
+    required this.label,
+    required this.value,
+    this.isPositive,
+  });
+
+  final String label;
+  final String value;
+  final bool? isPositive;
+
+  @override
+  Widget build(BuildContext context) {
+    Color? badgeColor;
+    Color? textColor;
+    if (isPositive != null) {
+      badgeColor = isPositive! ? const Color(0xFFECFDF5) : const Color(0xFFF1F5F9);
+      textColor = isPositive! ? const Color(0xFF047857) : const Color(0xFF64748B);
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: badgeColor ?? const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(fontSize: 11.5, color: Color(0xFF64748B), fontWeight: FontWeight.w500),
+          ),
+          if (value.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: textColor ?? const Color(0xFF0F172A),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
