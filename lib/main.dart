@@ -661,7 +661,10 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
   void _showAddCustomAppDialog() {
     showDialog<void>(
       context: context,
-      builder: (context) => _AddCustomAppDialog(settings: widget.settings),
+      builder: (context) => _AddCustomAppDialog(
+        settings: widget.settings,
+        hook: _hook,
+      ),
     );
   }
 
@@ -1637,9 +1640,13 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
 }
 
 class _AddCustomAppDialog extends StatefulWidget {
-  const _AddCustomAppDialog({required this.settings});
+  const _AddCustomAppDialog({
+    required this.settings,
+    required this.hook,
+  });
 
   final AppSettings settings;
+  final KeyboardHookClient hook;
 
   @override
   State<_AddCustomAppDialog> createState() => _AddCustomAppDialogState();
@@ -1648,6 +1655,8 @@ class _AddCustomAppDialog extends StatefulWidget {
 class _AddCustomAppDialogState extends State<_AddCustomAppDialog> {
   final TextEditingController _processController = TextEditingController();
   final TextEditingController _labelController = TextEditingController();
+  List<Map<String, String>> _runningApps = [];
+  bool _isLoadingRunning = true;
 
   final List<Map<String, String>> _popularApps = const [
     {'process': 'whatsapp.exe', 'label': 'WhatsApp', 'cat': 'Messaging'},
@@ -1661,6 +1670,21 @@ class _AddCustomAppDialogState extends State<_AddCustomAppDialog> {
     {'process': 'obsidian.exe', 'label': 'Obsidian', 'cat': 'Notes'},
     {'process': 'notion.exe', 'label': 'Notion', 'cat': 'Notes'},
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchRunningApps();
+  }
+
+  Future<void> _fetchRunningApps() async {
+    final apps = await widget.hook.getRunningApps();
+    if (!mounted) return;
+    setState(() {
+      _runningApps = apps;
+      _isLoadingRunning = false;
+    });
+  }
 
   @override
   void dispose() {
@@ -1696,55 +1720,155 @@ class _AddCustomAppDialogState extends State<_AddCustomAppDialog> {
           const Text('Add Target Application', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         ],
       ),
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Quick Add Popular Apps:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF64748B)),
-            ),
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final app in _popularApps)
-                  ActionChip(
-                    avatar: const Icon(Icons.add, size: 16, color: Color(0xFF0F766E)),
-                    label: Text(app['label']!),
-                    backgroundColor: const Color(0xFFF1F5F9),
-                    onPressed: () => _addApp(app['process']!, app['label']!, app['cat']!),
+      content: SizedBox(
+        width: 520,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Running Apps Section (Live PC Apps)
+              Row(
+                children: [
+                  const Icon(Icons.bolt_rounded, size: 18, color: Color(0xFF10B981)),
+                  const SizedBox(width: 6),
+                  const Text(
+                    'Select from Apps Currently Running on Your PC:',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF0F172A)),
                   ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            const Divider(),
-            const SizedBox(height: 12),
-            const Text(
-              'Or Enter Any Custom Executable Name:',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF64748B)),
-            ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _processController,
-              decoration: InputDecoration(
-                labelText: 'Process Name (e.g. whatsapp.exe or antigravity)',
-                hintText: 'antigravity.exe',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.refresh_rounded, size: 18, color: Color(0xFF64748B)),
+                    tooltip: 'Refresh running apps',
+                    onPressed: () {
+                      setState(() => _isLoadingRunning = true);
+                      _fetchRunningApps();
+                    },
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _labelController,
-              decoration: InputDecoration(
-                labelText: 'Display Label (Optional)',
-                hintText: 'AntiGravity AI',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              const SizedBox(height: 8),
+              if (_isLoadingRunning)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              else if (_runningApps.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Text(
+                    'No external apps detected running right now. Launch WhatsApp or any app and click Refresh!',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                  ),
+                )
+              else
+                Container(
+                  constraints: const BoxConstraints(maxHeight: 180),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _runningApps.length,
+                    separatorBuilder: (context, index) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final app = _runningApps[index];
+                      final proc = app['processName']!;
+                      final title = app['title']!;
+                      final isAlreadyAdded = widget.settings.isTargetApp(proc);
+
+                      return ListTile(
+                        dense: true,
+                        leading: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: isAlreadyAdded ? const Color(0xFFDCFCE7) : const Color(0xFFE0F2FE),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Icon(
+                            isAlreadyAdded ? Icons.check_circle_rounded : Icons.laptop_windows_rounded,
+                            size: 18,
+                            color: isAlreadyAdded ? const Color(0xFF16A34A) : const Color(0xFF0284C7),
+                          ),
+                        ),
+                        title: Text(
+                          title.length > 38 ? '${title.substring(0, 38)}...' : title,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        subtitle: Text(
+                          proc,
+                          style: const TextStyle(fontSize: 11, color: Color(0xFF64748B)),
+                        ),
+                        trailing: isAlreadyAdded
+                            ? const Text('Added', style: TextStyle(fontSize: 11, color: Color(0xFF16A34A), fontWeight: FontWeight.bold))
+                            : FilledButton.tonal(
+                                style: FilledButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                  visualDensity: VisualDensity.compact,
+                                ),
+                                onPressed: () => _addApp(proc, title.split('-').first.trim(), 'Running PC App'),
+                                child: const Text('Add', style: TextStyle(fontSize: 12)),
+                              ),
+                      );
+                    },
+                  ),
+                ),
+
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 12),
+
+              const Text(
+                'Quick Add Popular Apps:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF64748B)),
               ),
-            ),
-          ],
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final app in _popularApps)
+                    ActionChip(
+                      avatar: const Icon(Icons.add, size: 16, color: Color(0xFF0F766E)),
+                      label: Text(app['label']!),
+                      backgroundColor: const Color(0xFFF1F5F9),
+                      onPressed: () => _addApp(app['process']!, app['label']!, app['cat']!),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              const Divider(),
+              const SizedBox(height: 12),
+              const Text(
+                'Or Enter Any Custom Process Name:',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: _processController,
+                decoration: InputDecoration(
+                  labelText: 'Process Name (e.g. whatsapp.exe or antigravity)',
+                  hintText: 'antigravity.exe',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _labelController,
+                decoration: InputDecoration(
+                  labelText: 'Display Label (Optional)',
+                  hintText: 'AntiGravity AI',
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
       actions: [

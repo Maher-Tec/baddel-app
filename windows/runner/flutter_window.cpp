@@ -487,6 +487,62 @@ bool FlutterWindow::OnCreate() {
         } else if (call.method_name() == "hideWarningPopup") {
           warning_popup_.Hide();
           result->Success();
+        } else if (call.method_name() == "getRunningApps") {
+          std::vector<flutter::EncodableValue> list;
+          EnumWindows([](HWND hwnd, LPARAM lparam) -> BOOL {
+            auto* list_ptr = reinterpret_cast<std::vector<flutter::EncodableValue>*>(lparam);
+            if (!IsWindowVisible(hwnd)) return TRUE;
+
+            const int title_length = GetWindowTextLengthW(hwnd);
+            if (title_length <= 0) return TRUE;
+
+            LONG_PTR ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+            if ((ex_style & WS_EX_TOOLWINDOW) && !(ex_style & WS_EX_APPWINDOW)) {
+              return TRUE;
+            }
+
+            wchar_t title_buf[512] = {};
+            GetWindowTextW(hwnd, title_buf, 512);
+            std::string title = WideToUtf8(title_buf);
+            if (title.empty() || title == "Program Manager" || title == "Windows Shell Experience Host") {
+              return TRUE;
+            }
+
+            std::string proc_name = ForegroundProcessName(hwnd);
+            if (proc_name.empty() || proc_name == "badeli.exe" || proc_name == "explorer.exe") {
+              return TRUE;
+            }
+
+            std::string proc_lower = proc_name;
+            std::transform(proc_lower.begin(), proc_lower.end(), proc_lower.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+
+            bool already_added = false;
+            for (const auto& item : *list_ptr) {
+              if (const auto* map = std::get_if<flutter::EncodableMap>(&item)) {
+                auto it = map->find(flutter::EncodableValue("processName"));
+                if (it != map->end()) {
+                  if (const auto* name = std::get_if<std::string>(&it->second)) {
+                    if (*name == proc_lower) {
+                      already_added = true;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+
+            if (!already_added) {
+              flutter::EncodableMap map;
+              map[flutter::EncodableValue("processName")] = flutter::EncodableValue(proc_lower);
+              map[flutter::EncodableValue("title")] = flutter::EncodableValue(title);
+              list_ptr->push_back(flutter::EncodableValue(map));
+            }
+
+            return TRUE;
+          }, reinterpret_cast<LPARAM>(&list));
+
+          result->Success(flutter::EncodableValue(list));
         } else {
           result->NotImplemented();
         }

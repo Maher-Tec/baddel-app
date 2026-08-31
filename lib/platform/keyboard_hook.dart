@@ -130,6 +130,22 @@ class KeyboardHookClient {
   Future<void> hideWarningPopup() =>
       _channel.invokeMethod<void>('hideWarningPopup');
 
+  Future<List<Map<String, String>>> getRunningApps() async {
+    try {
+      final rawList = await _channel.invokeListMethod<dynamic>('getRunningApps');
+      if (rawList == null) return [];
+      return rawList.map((item) {
+        final map = Map<String, dynamic>.from(item as Map);
+        return {
+          'processName': map['processName'] as String? ?? '',
+          'title': map['title'] as String? ?? '',
+        };
+      }).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
   Future<dynamic> _handleMethodCall(MethodCall call) async {
     if (call.method == 'keyEvent' && call.arguments is Map) {
       final map = Map<Object?, Object?>.from(call.arguments as Map);
