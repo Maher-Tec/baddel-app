@@ -313,7 +313,15 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
       });
     });
     _manualFixSubscription = _hook.manualFixRequests.listen((_) {
-      _correctSelection();
+      if (_lastDetection != null) {
+        _correctSelection(
+          detection: _lastDetection,
+          selectionUnits: _warningSelectionUnits,
+          trailingUnits: _warningTrailingUnits,
+        );
+      } else {
+        _correctSelection();
+      }
     });
     _debugSubscription = _hook.debugMessages.listen((message) {
       if (!mounted) return;
@@ -448,7 +456,6 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
     if (!event.keyDown || event.injected || _detectionPaused) return;
 
     if (_typingWindow != event.foregroundWindow) {
-      _invalidateActiveWarning();
       _typingWindow = event.foregroundWindow;
       _typingBuffer.reset();
       _detectionPauseTimer?.cancel();
