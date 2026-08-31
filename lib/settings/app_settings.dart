@@ -178,15 +178,32 @@ class AppSettings extends ChangeNotifier {
       );
 
   bool isTargetApp(String processName) {
-    final normalized = processName.toLowerCase();
-    return allTargetApps.any((app) => app.processName == normalized);
+    final normalized = processName.toLowerCase().trim();
+    if (normalized.isEmpty) return false;
+    final normalizedBase = normalized.replaceAll('.exe', '');
+
+    return allTargetApps.any((app) {
+      final appProc = app.processName.toLowerCase();
+      final appBase = appProc.replaceAll('.exe', '');
+      return appProc == normalized ||
+          (appBase.isNotEmpty && normalized.contains(appBase)) ||
+          (normalizedBase.isNotEmpty && appProc.contains(normalizedBase));
+    });
   }
 
   bool isDetectionEnabled(String processName) {
-    final normalized = processName.toLowerCase();
-    return !_detectionPaused &&
-        !sensitiveProcesses.contains(normalized) &&
-        _detectionEnabledApps.contains(normalized);
+    final normalized = processName.toLowerCase().trim();
+    if (_detectionPaused || sensitiveProcesses.contains(normalized)) {
+      return false;
+    }
+    final normalizedBase = normalized.replaceAll('.exe', '');
+
+    return _detectionEnabledApps.any((enabledApp) {
+      final enabledBase = enabledApp.replaceAll('.exe', '');
+      return enabledApp == normalized ||
+          (enabledBase.isNotEmpty && normalized.contains(enabledBase)) ||
+          (normalizedBase.isNotEmpty && enabledApp.contains(normalizedBase));
+    });
   }
 
   Future<void> completeOnboarding() async {

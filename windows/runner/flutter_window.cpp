@@ -68,6 +68,22 @@ std::string ForegroundProcessName(HWND window) {
 
   DWORD process_id = 0;
   GetWindowThreadProcessId(window, &process_id);
+
+  // Check if window is a UWP ApplicationFrameWindow (e.g. WhatsApp Desktop Store App)
+  wchar_t class_name[256] = {};
+  if (GetClassNameW(window, class_name, 256) > 0) {
+    if (std::wstring(class_name) == L"ApplicationFrameWindow") {
+      HWND inner_child = FindWindowExW(window, nullptr, L"Windows.UI.Core.CoreWindow", nullptr);
+      if (inner_child != nullptr) {
+        DWORD inner_pid = 0;
+        GetWindowThreadProcessId(inner_child, &inner_pid);
+        if (inner_pid != 0) {
+          process_id = inner_pid;
+        }
+      }
+    }
+  }
+
   HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE,
                                process_id);
   if (process == nullptr) {
