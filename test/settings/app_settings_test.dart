@@ -47,5 +47,22 @@ void main() {
       await settings.setPersonalityMode(PersonalityMode.devTanbir);
       expect(settings.personalityMode, PersonalityMode.devTanbir);
     });
+
+    test('allows adding and removing custom target applications', () async {
+      final settings = AppSettings.inMemory();
+
+      await settings.addCustomApp(
+        processName: 'whatsapp',
+        label: 'WhatsApp Desktop',
+        category: 'Messaging',
+      );
+
+      expect(settings.isTargetApp('whatsapp.exe'), isTrue);
+      expect(settings.isDetectionEnabled('whatsapp.exe'), isTrue);
+
+      await settings.removeCustomApp('whatsapp.exe');
+      expect(settings.isTargetApp('whatsapp.exe'), isFalse);
+      expect(settings.isDetectionEnabled('whatsapp.exe'), isFalse);
+    });
   });
 }
