@@ -2,10 +2,12 @@
   <img src="assets/logo/logo.png" width="180" alt="Baddel Logo" />
   <h1 align="center">🇹🇳 Baddel! (بدّل)</h1>
   <p align="center">
-    <strong>Smart Tunisian Keyboard Language Helper & Layout Fixer for Windows</strong>
+    <strong>Smart Tunisian Keyboard Language Helper & Layout Fixer for Windows</strong><br/>
+    Created & Developed with ❤️ by <strong><a href="https://maher-ahmed.netlify.app/">Maher Ahmed</a></strong>
   </p>
   <p align="center">
-    <a href="https://github.com/badeli/baddel/releases"><img src="https://img.shields.io/badge/Download-BaddelSetup.exe-0D9488?style=for-the-badge&logo=windows" alt="Download Windows Installer"></a>
+    <a href="https://github.com/Maher-Tec/baddel-app/releases"><img src="https://img.shields.io/badge/Download-BaddelSetup.exe-0D9488?style=for-the-badge&logo=windows" alt="Download Windows Installer"></a>
+    <a href="https://maher-ahmed.netlify.app/"><img src="https://img.shields.io/badge/Developer-Maher%20Ahmed-0284C7?style=for-the-badge&logo=netlify" alt="Developer Portfolio"></a>
     <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?style=for-the-badge&logo=windows" alt="Windows Support">
     <img src="https://img.shields.io/badge/Privacy-100%25%20Offline-10B981?style=for-the-badge&logo=shield" alt="Privacy First">
   </p>

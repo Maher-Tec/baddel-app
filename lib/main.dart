@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:tray_manager/tray_manager.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core/detection_engine.dart';
@@ -2686,12 +2687,19 @@ class _StatusMetricChip extends StatelessWidget {
 class _AboutBaddelDialog extends StatelessWidget {
   const _AboutBaddelDialog();
 
+  Future<void> _launchUrl(String urlString) async {
+    final Uri uri = Uri.parse(urlString);
+    if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+      debugPrint('Could not launch $urlString');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       child: Container(
-        width: 480,
+        width: 500,
         padding: const EdgeInsets.all(32),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -2737,8 +2745,8 @@ class _AboutBaddelDialog extends StatelessWidget {
                 border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
               child: Column(
-                children: const [
-                  Row(
+                children: [
+                  const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.code_rounded, color: Color(0xFF0F766E), size: 18),
@@ -2749,10 +2757,24 @@ class _AboutBaddelDialog extends StatelessWidget {
                       ),
                     ],
                   ),
-                  SizedBox(height: 4),
-                  Text(
+                  const SizedBox(height: 4),
+                  const Text(
                     'Maher Ahmed',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: Color(0xFF0F172A)),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Color(0xFF0F766E)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    ),
+                    onPressed: () => _launchUrl('https://maher-ahmed.netlify.app/'),
+                    icon: const Icon(Icons.language_rounded, size: 16, color: Color(0xFF0F766E)),
+                    label: const Text(
+                      'Visit Portfolio (maher-ahmed.netlify.app)',
+                      style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold, color: Color(0xFF0F766E)),
+                    ),
                   ),
                 ],
               ),
