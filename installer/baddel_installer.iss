@@ -2,9 +2,9 @@
 ; Inno Setup Script for Baddel! Keyboard Language Helper
 
 #define MyAppName "Baddel!"
-#define MyAppVersion "1.0.0"
-#define MyAppPublisher "Baddel Team"
-#define MyAppURL "https://github.com/badeli/baddel"
+#define MyAppVersion "1.1.0"
+#define MyAppPublisher "Maher Ahmed"
+#define MyAppURL "https://github.com/Maher-Tec/baddel-app"
 #define MyAppExeName "badeli.exe"
 
 [Setup]
