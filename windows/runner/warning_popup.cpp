@@ -128,6 +128,18 @@ LRESULT WarningPopup::HandleMessage(HWND window, UINT message, WPARAM wparam,
   switch (message) {
     case WM_MOUSEACTIVATE:
       return MA_NOACTIVATE;
+    case WM_NCHITTEST: {
+      POINT screen_pt = {GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+      POINT client_pt = screen_pt;
+      ScreenToClient(window, &client_pt);
+
+      if (ContainsPoint(fix_button_, client_pt) ||
+          ContainsPoint(dismiss_button_, client_pt) ||
+          ContainsPoint(pause_button_, client_pt)) {
+        return HTCLIENT;
+      }
+      return HTCAPTION;
+    }
     case WM_PAINT:
       Paint(window);
       return 0;
@@ -162,13 +174,19 @@ void WarningPopup::Paint(HWND window) {
   SetBkMode(context, TRANSPARENT);
 
   // Title
-  RECT title = {18, 14, kPopupWidth - 18, 42};
+  RECT title = {18, 14, kPopupWidth - 42, 42};
   SelectObject(context, title_font_);
   SetTextColor(context, RGB(20, 25, 35));
   const std::wstring display_title =
       title_.empty() ? L"Baddel! \U0001F602 \u0646\u0633\u064A\u062A \u0627\u0644\u0643\u0644\u0627\u0641\u064A\u064A\u061F" : title_;
   DrawTextW(context, display_title.c_str(), -1,
             &title, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+
+  // Drag handle indicator in top-right
+  RECT drag_hint = {kPopupWidth - 36, 14, kPopupWidth - 16, 36};
+  SetTextColor(context, RGB(160, 175, 185));
+  SelectObject(context, body_font_);
+  DrawTextW(context, L"⋮⋮", -1, &drag_hint, DT_RIGHT | DT_TOP | DT_SINGLELINE);
 
   // Suggestion body
   RECT suggestion = {18, 48, kPopupWidth - 18, 105};
