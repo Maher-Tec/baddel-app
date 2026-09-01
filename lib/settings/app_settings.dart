@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/personality.dart';
+import '../core/keyboard_layout.dart';
 
 class BaddelTargetApp {
   const BaddelTargetApp({
@@ -44,6 +45,7 @@ class AppSettings extends ChangeNotifier {
     required Set<String> detectionEnabledApps,
     required List<BaddelTargetApp> customTargetApps,
     required PersonalityMode personalityMode,
+    required KeyboardLayoutProfile layoutProfile,
     required bool developerModeEnabled,
   })  : _preferences = preferences,
         _onboardingComplete = onboardingComplete,
@@ -51,6 +53,7 @@ class AppSettings extends ChangeNotifier {
         _detectionEnabledApps = detectionEnabledApps,
         _customTargetApps = customTargetApps,
         _personalityMode = personalityMode,
+        _layoutProfile = layoutProfile,
         _developerModeEnabled = developerModeEnabled;
 
   static const defaultTargetApps = <BaddelTargetApp>[
@@ -109,6 +112,7 @@ class AppSettings extends ChangeNotifier {
   static const _customAppsKey = 'custom_target_apps_v1';
   static const _personalityModeKey = 'personality_mode';
   static const _developerModeKey = 'developer_mode_enabled';
+  static const _layoutProfileKey = 'keyboard_layout_profile';
 
   final SharedPreferences? _preferences;
   bool _onboardingComplete;
@@ -116,12 +120,14 @@ class AppSettings extends ChangeNotifier {
   Set<String> _detectionEnabledApps;
   List<BaddelTargetApp> _customTargetApps;
   PersonalityMode _personalityMode;
+  KeyboardLayoutProfile _layoutProfile;
   bool _developerModeEnabled;
 
   bool get onboardingComplete => _onboardingComplete;
   bool get detectionPaused => _detectionPaused;
   PersonalityMode get personalityMode => _personalityMode;
   bool get developerModeEnabled => _developerModeEnabled;
+  KeyboardLayoutProfile get layoutProfile => _layoutProfile;
   Set<String> get detectionEnabledApps => Set.unmodifiable(_detectionEnabledApps);
 
   List<BaddelTargetApp> get allTargetApps => [...defaultTargetApps, ..._customTargetApps];
@@ -137,6 +143,11 @@ class AppSettings extends ChangeNotifier {
     final personalityMode = PersonalityMode.values.firstWhere(
       (mode) => mode.name == savedMode,
       orElse: () => PersonalityMode.weldElHouma,
+    );
+    final savedProfile = preferences.getString(_layoutProfileKey);
+    final layoutProfile = KeyboardLayoutProfile.values.firstWhere(
+      (profile) => profile.name == savedProfile,
+      orElse: () => KeyboardLayoutProfile.usQwerty,
     );
 
     final rawCustomApps = preferences.getStringList(_customAppsKey) ?? [];
@@ -155,6 +166,7 @@ class AppSettings extends ChangeNotifier {
       detectionEnabledApps: preferences.getStringList(_enabledAppsKey)?.toSet() ?? defaultEnabledApps,
       customTargetApps: customApps,
       personalityMode: personalityMode,
+      layoutProfile: layoutProfile,
       developerModeEnabled: preferences.getBool(_developerModeKey) ?? false,
     );
   }
@@ -165,6 +177,7 @@ class AppSettings extends ChangeNotifier {
     Set<String>? detectionEnabledApps,
     List<BaddelTargetApp>? customTargetApps,
     PersonalityMode personalityMode = PersonalityMode.weldElHouma,
+    KeyboardLayoutProfile layoutProfile = KeyboardLayoutProfile.usQwerty,
     bool developerModeEnabled = false,
   }) =>
       AppSettings._(
@@ -174,6 +187,7 @@ class AppSettings extends ChangeNotifier {
         detectionEnabledApps: detectionEnabledApps ?? defaultEnabledApps,
         customTargetApps: customTargetApps ?? [],
         personalityMode: personalityMode,
+        layoutProfile: layoutProfile,
         developerModeEnabled: developerModeEnabled,
       );
 
@@ -294,6 +308,12 @@ class AppSettings extends ChangeNotifier {
   Future<void> setPersonalityMode(PersonalityMode mode) async {
     _personalityMode = mode;
     await _preferences?.setString(_personalityModeKey, mode.name);
+    notifyListeners();
+  }
+
+  Future<void> setLayoutProfile(KeyboardLayoutProfile profile) async {
+    _layoutProfile = profile;
+    await _preferences?.setString(_layoutProfileKey, profile.name);
     notifyListeners();
   }
 }

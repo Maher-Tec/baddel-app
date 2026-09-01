@@ -123,9 +123,12 @@ class KeyboardHookClient {
       await _channel.invokeMethod<bool>('showWarningPopup', {
         'suggestion': suggestion,
         'confidence': confidence,
-        if (title != null) 'title': title,
+        ..._optionalTitle(title),
       }) ??
       false;
+
+  static Map<String, String> _optionalTitle(String? title) =>
+      title == null ? const {} : {'title': title};
 
   Future<void> hideWarningPopup() =>
       _channel.invokeMethod<void>('hideWarningPopup');

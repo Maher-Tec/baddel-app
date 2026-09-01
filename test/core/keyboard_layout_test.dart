@@ -46,5 +46,42 @@ void main() {
     test('returns an empty string unchanged', () {
       expect(KeyboardLayout.convert('', LayoutDirection.usToArabic), isEmpty);
     });
+
+    test('supports the French AZERTY physical key profile', () {
+      expect(
+        KeyboardLayout.convertForProfile(
+          'azerty',
+          LayoutDirection.usToArabic,
+          KeyboardLayoutProfile.frenchAzerty,
+        ),
+        KeyboardLayout.convert('qwerty', LayoutDirection.usToArabic),
+      );
+      expect(
+        KeyboardLayout.convertForProfile(
+          '\u0636\u0635\u062b\u0642\u0641\u063a',
+          LayoutDirection.arabicToUs,
+          KeyboardLayoutProfile.frenchAzerty,
+        ),
+        'azerty',
+      );
+    });
+
+    test('supports Arabic phonetic conversion', () {
+      expect(
+        KeyboardLayout.convertForProfile('salam', LayoutDirection.usToArabic, KeyboardLayoutProfile.arabicPhonetic),
+        '\u0633\u0627\u0644\u0627\u0645',
+      );
+      expect(
+        KeyboardLayout.convertForProfile('\u0633\u0644\u0627\u0645', LayoutDirection.arabicToUs, KeyboardLayoutProfile.arabicPhonetic),
+        'slam',
+      );
+    });
+
+    test('keeps Arabic 101 compatible with the standard map', () {
+      expect(
+        KeyboardLayout.convertForProfile('qwerty', LayoutDirection.usToArabic, KeyboardLayoutProfile.arabic101),
+        KeyboardLayout.convert('qwerty', LayoutDirection.usToArabic),
+      );
+    });
   });
 }

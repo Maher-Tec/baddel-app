@@ -43,4 +43,33 @@ void main() {
     expect(result, isNotNull);
     expect(result!.shouldWarn, isFalse);
   });
+
+  test('detects a short English phrase in the wrong layout', () {
+    final typed = KeyboardLayout.convert('hi', LayoutDirection.usToArabic);
+
+    final result = detector.detect(typed);
+
+    expect(result, isNotNull);
+    expect(result!.shouldWarn, isTrue);
+    expect(result.suggestion, 'hi');
+  });
+
+  test('detects a short Arabic phrase in the wrong layout', () {
+    const intended = '\u0641\u064a';
+    final typed = KeyboardLayout.convert(intended, LayoutDirection.arabicToUs);
+
+    final result = detector.detect(typed);
+
+    expect(result, isNotNull);
+    expect(result!.shouldWarn, isTrue);
+    expect(result.suggestion, intended);
+  });
+
+  test('does not warn on Tunisian Arabizi with numeric consonants', () {
+    final result = detector.detect('3lech ma5demch');
+
+    expect(result, isNotNull);
+    expect(result!.shouldWarn, isFalse);
+    expect(result.reason, contains('Arabizi'));
+  });
 }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:badeli/main.dart';
+import 'package:badeli/main.dart' hide PrivacyOnboardingPage;
+import 'package:badeli/screens/onboarding_page.dart';
+import 'package:badeli/settings/app_settings.dart';
 
 void main() {
   testWidgets('shows the Baddel product screen', (tester) async {
@@ -22,5 +24,21 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Events received: 0'), findsOneWidget);
+  });
+
+  testWidgets('guides a new user through onboarding', (tester) async {
+    final settings = AppSettings.inMemory(onboardingComplete: false);
+    await tester.pumpWidget(MaterialApp(home: PrivacyOnboardingPage(settings: settings)));
+
+    expect(find.text('Welcome to Baddel!'), findsOneWidget);
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    expect(find.text('Choose your apps'), findsOneWidget);
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    expect(find.text('Choose your style'), findsOneWidget);
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    expect(find.text('You are ready!'), findsOneWidget);
   });
 }

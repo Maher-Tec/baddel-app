@@ -1,92 +1,96 @@
 <p align="center">
-  <img src="assets/logo/logo.png" width="180" alt="Baddel Logo" />
-  <h1 align="center">🇹🇳 Baddel! (بدّل)</h1>
-  <p align="center">
-    <strong>Smart Tunisian Keyboard Language Helper & Layout Fixer for Windows</strong><br/>
-    Created & Developed with ❤️ by <strong><a href="https://maher-ahmed.netlify.app/">Maher Ahmed</a></strong>
-  </p>
-  <p align="center">
-    <a href="https://github.com/Maher-Tec/baddel-app/releases"><img src="https://img.shields.io/badge/Download-BaddelSetup.exe-0D9488?style=for-the-badge&logo=windows" alt="Download Windows Installer"></a>
-    <a href="https://maher-ahmed.netlify.app/"><img src="https://img.shields.io/badge/Developer-Maher%20Ahmed-0284C7?style=for-the-badge&logo=netlify" alt="Developer Portfolio"></a>
-    <img src="https://img.shields.io/badge/Platform-Windows%2010%2F11-0078D4?style=for-the-badge&logo=windows" alt="Windows Support">
-    <img src="https://img.shields.io/badge/Privacy-100%25%20Offline-10B981?style=for-the-badge&logo=shield" alt="Privacy First">
-  </p>
+  <img src="assets/logo/logo.png" width="180" alt="Baddel logo" />
 </p>
 
----
+<h1 align="center">Baddel!</h1>
 
-## 🌟 What is Baddel!?
+<p align="center">Privacy-first Arabic and English keyboard layout helper for Windows.</p>
 
-**Baddel!** is a smart, privacy-first desktop application that monitors your typing in real-time across Windows applications. When it detects that you typed English words on an active Arabic keyboard layout (or vice-versa), it floats a **modern rounded toast overlay** with hilarious Tunisian roasts and offers **1-click automatic layout correction**.
+<p align="center">
+  <a href="https://github.com/Maher-Tec/baddel-app/releases/latest">Download</a> ·
+  <a href="https://github.com/Maher-Tec/baddel-app/actions/workflows/windows-ci.yml">CI builds</a>
+</p>
 
-No more deleting paragraphs or rewriting lost thoughts — hit `Ctrl+Alt+B` or click **🚀 Fasakh & Baddel**!
+## What is Baddel?
 
----
+Baddel detects when text was typed with the wrong keyboard layout and offers a one-click correction. It works locally on Windows and includes Tunisian personality modes for its warning messages.
 
-## ✨ Features
+## Install in 30 seconds
 
-- **🛡️ 100% Privacy-First Architecture**: Analyzes text strictly in local volatile RAM. **Zero cloud calls**, **zero keylogging**, and **zero files saved**. Sensitive apps (password managers, remote desktops) are automatically excluded.
-- **🪟 Modern Floating Toast Overlay**: Sleek Win32 top-level toast window featuring frosted rounded corners, smooth entrance micro-animations, and cute pill action buttons:
-  - `[ 🚀 Fasakh & Baddel ]` — Instant automatic replacement
-  - `[ 🙈 5allini ]` — Dismiss warning
-  - `[ ⏸️ Pause ]` — Temporarily pause detection
-- **🇹🇳 4 Authentic Tunisian Humor Banks**:
-  - 🌶️ **Weld El Houma (`ولد الحومة`)**: Street banter, louage jokes, coffee roasts, and harissa memes.
-  - 💻 **Dev Tanbir (`تنبير ديفلوبور`)**: Developer roasts, Git commits, Docker crashes, and StackOverflow roasts.
-  - 😂 **Tunisian Friendly (`فدلاك`)**: Cheerful everyday Tunisian Arabizi and Arabic banter.
-  - 👔 **Classic (`رسمي`)**: Polite, direct notifications.
-- **🧠 Escalating Patience Engine**: Tracks rapid consecutive typing mistakes. Repeat mistakes escalate Baddel's roast level until it surrenders (*"Baddel! 💀 أنا نستقيل"*).
-- **📜 Long-Typing Roasts**: Special roasts triggered when 25+ characters are typed before noticing the layout mismatch (*"Baddel! 💀 Bro wrote the whole README in the wrong layout"*).
-- **⌨️ Keyboard Shortcuts**:
-  - `Ctrl + Alt + B` — Instant selection capture & conversion
-  - `Ctrl + Alt + Z` — Baddel safe fallback undo (restores original text within 2 minutes)
-  - `Ctrl + Z` — Native editor undo
-- **🎯 In-App Interactive Test Sandbox (`جرّب هوني`)**: Test layout conversions live right inside the app interface.
+1. Open the [latest release](https://github.com/Maher-Tec/baddel-app/releases/latest).
+2. Download `BaddelSetup.exe`.
+3. Run the installer and launch Baddel.
+4. Choose the apps Baddel should monitor during onboarding.
 
----
+If no installer is attached yet, use the Windows build artifact from the [CI Actions page](https://github.com/Maher-Tec/baddel-app/actions).
 
-## 📱 Supported Applications
+## Features
 
-| Application | Category | Auto-Detection Default |
-| :--- | :--- | :---: |
-| **Notepad** | Plain Text | ✅ Enabled |
-| **Google Chrome** | Web Browser | ✅ Enabled |
-| **Microsoft Word** | Word Processor | ✅ Enabled |
-| **WordPad** | Rich Text | ✅ Enabled |
-| **VS Code** | Developer IDE | ⏸️ Manual (Ctrl+Alt+B) |
-| **Windows Terminal** | Command Line | ⏸️ Manual (Ctrl+Alt+B) |
+- Detects Arabic-layout and English-layout typing mistakes.
+- Supports US QWERTY and French AZERTY profiles.
+- Handles short phrases and common Tunisian Arabizi patterns such as `3lech` and `ma5demch`.
+- Provides one-click popup correction and manual `Ctrl + Alt + B` correction.
+- Includes `Ctrl + Alt + Z` safe undo for recent Baddel replacements.
+- Supports per-application enable/disable controls.
+- Includes four Tunisian personality modes.
+- Shows local feedback statistics for fixes and dismissed warnings.
+- Runs a silent, non-blocking update check against the GitHub release manifest.
 
----
+## Supported applications
 
-## 🚀 Quickstart & Installation
+| Application | Default behavior |
+| --- | --- |
+| Notepad | Automatic detection enabled |
+| Google Chrome | Automatic detection enabled |
+| Microsoft Word | Automatic detection enabled |
+| WordPad | Automatic detection enabled |
+| VS Code | Manual correction only |
+| Windows Terminal | Manual correction only |
 
-### Option 1: Windows Setup Installer (Recommended)
-1. Download **[`BaddelSetup.exe`](https://github.com/badeli/baddel/releases/latest)** from the Releases section.
-2. Run the installer.
-3. Select optional Desktop shortcut and *"Launch Baddel! when Windows starts"* settings.
-4. Enjoy smart layout detection!
+More applications can be added from the dashboard. Password managers and remote desktop apps remain excluded for safety.
 
-### Option 2: Build from Source
-Requirements: [Flutter SDK](https://flutter.dev), Visual Studio 2022 (C++ Desktop development).
+## Privacy
 
-```bash
-# Clone the repository
-git clone https://github.com/badeli/baddel.git
-cd baddel
+Baddel analyzes text locally in memory and never uploads typed content. It does not store the text being corrected. The optional feedback loop stores only action metadata (fix or dismissal), application name, and timestamp locally so the dashboard can show statistics. Records older than 90 days are removed.
 
-# Install dependencies & run test suite
+## Build from source
+
+Requirements:
+
+- Flutter SDK
+- Windows 10/11
+- Visual Studio 2022 with Desktop development with C++
+
+```powershell
+git clone https://github.com/Maher-Tec/baddel-app.git
+cd baddel-app
 flutter pub get
 flutter test
-
-# Run in debug mode
+flutter analyze
 flutter run -d windows
+```
 
-# Build standalone release binary
+Build a standalone Windows release:
+
+```powershell
 flutter build windows --release
 ```
 
----
+The output is created in `build/windows/x64/runner/Release`.
 
-## 📜 License & Privacy
+## CI and releases
 
-Distributed under the MIT License. Text analysis is conducted 100% locally on your machine.
+Every push or pull request to `master` runs tests, analysis, and a Windows release build through [GitHub Actions](.github/workflows/windows-ci.yml). Successful builds are uploaded as workflow artifacts.
+
+For a public release:
+
+```powershell
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+Then create a GitHub Release for the tag and attach `BaddelSetup.exe`. Update [version.json](version.json) whenever a newer release is published.
+
+## License
+
+MIT License. See the repository for the full source and license details.

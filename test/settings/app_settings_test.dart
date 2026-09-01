@@ -1,4 +1,5 @@
 import 'package:badeli/core/personality.dart';
+import 'package:badeli/core/keyboard_layout.dart';
 import 'package:badeli/settings/app_settings.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -63,6 +64,14 @@ void main() {
       await settings.removeCustomApp('whatsapp.exe');
       expect(settings.isTargetApp('whatsapp.exe'), isFalse);
       expect(settings.isDetectionEnabled('whatsapp.exe'), isFalse);
+    });
+
+    test('stores the selected keyboard layout profile', () async {
+      final settings = AppSettings.inMemory();
+
+      await settings.setLayoutProfile(KeyboardLayoutProfile.frenchAzerty);
+
+      expect(settings.layoutProfile, KeyboardLayoutProfile.frenchAzerty);
     });
   });
 }

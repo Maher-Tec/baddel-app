@@ -1,6 +1,8 @@
 /// Direction of a keyboard-layout conversion.
 enum LayoutDirection { usToArabic, arabicToUs }
 
+enum KeyboardLayoutProfile { usQwerty, frenchAzerty, arabic101, arabicPhonetic }
+
 /// Deterministic keyboard-layout conversion for Baddel V1.
 ///
 /// This is intentionally a pure function: it has no clipboard, platform, or
@@ -87,6 +89,65 @@ class KeyboardLayout {
       LayoutDirection.arabicToUs => _convertArabicToUs(input),
     };
   }
+
+  /// Converts text using the selected physical keyboard profile.
+  ///
+  /// AZERTY is normalized through the US physical-key representation, which
+  /// lets the existing Arabic 101 map remain the single source of truth.
+  static String convertForProfile(
+    String input,
+    LayoutDirection direction,
+    KeyboardLayoutProfile profile,
+  ) {
+    if (profile == KeyboardLayoutProfile.usQwerty ||
+        profile == KeyboardLayoutProfile.arabic101) {
+      return convert(input, direction);
+    }
+    if (profile == KeyboardLayoutProfile.frenchAzerty) {
+      return direction == LayoutDirection.usToArabic
+          ? convert(_azertyToQwerty(input), direction)
+          : _qwertyToAzerty(convert(input, direction));
+    }
+    return direction == LayoutDirection.usToArabic
+        ? _phoneticToArabic(input)
+        : _arabicToPhonetic(input);
+  }
+
+  static const Map<String, String> _phoneticMap = {
+    'a': '\u0627', 'b': '\u0628', 't': '\u062a', 'j': '\u062c',
+    '7': '\u062d', 'd': '\u062f', 'r': '\u0631', 'z': '\u0632',
+    's': '\u0633', 'f': '\u0641', 'q': '\u0642', 'k': '\u0643',
+    'l': '\u0644', 'm': '\u0645', 'n': '\u0646', 'h': '\u0647',
+    'w': '\u0648', 'y': '\u064a', '3': '\u0639', 'g': '\u063a',
+    'x': '\u0634', '9': '\u0635', 'v': '\u0636',
+  };
+
+  static String _phoneticToArabic(String input) => input
+      .split('')
+      .map((character) => _phoneticMap[character.toLowerCase()] ?? character)
+      .join();
+
+  static String _arabicToPhonetic(String input) {
+    final reverse = {for (final entry in _phoneticMap.entries) entry.value: entry.key};
+    return input.split('').map((character) => reverse[character] ?? character).join();
+  }
+
+  static const Map<String, String> _azertyToQwertyMap = {
+    'a': 'q', 'z': 'w', 'q': 'a', 'w': 'z',
+    'A': 'Q', 'Z': 'W', 'Q': 'A', 'W': 'Z',
+  };
+
+  static String _azertyToQwerty(String input) => input
+      .split('')
+      .map((character) => _azertyToQwertyMap[character] ?? character)
+      .join();
+
+  static String _qwertyToAzerty(String input) => input.split('').map((character) {
+        for (final entry in _azertyToQwertyMap.entries) {
+          if (entry.value == character) return entry.key;
+        }
+        return character;
+      }).join();
 
   static String _convertUsToArabic(String input) {
     final output = StringBuffer();
