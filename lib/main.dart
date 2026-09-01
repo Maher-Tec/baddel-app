@@ -1144,23 +1144,22 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
                             ),
                           ],
                         ),
-                        const SizedBox(height: 14),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: const Color(0xFFFCD34D)),
-                          ),
-                          child: SelectableText(
-                            _lastDetection!.suggestion,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E293B),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            const Icon(Icons.lock_outline_rounded, size: 14, color: Color(0xFFD97706)),
+                            const SizedBox(width: 6),
+                            const Expanded(
+                              child: Text(
+                                'Check the popup notification to fix — your text is kept private here.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFFB45309),
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
                             ),
-                          ),
+                          ],
                         ),
                       ],
                     ),
