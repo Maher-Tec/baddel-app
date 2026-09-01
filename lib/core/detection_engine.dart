@@ -247,7 +247,7 @@ class DetectionEngine {
     Set<String> bigrams,
   ) {
     if (words.isEmpty) return 0;
-    final knownWords = words.where(dictionary.contains).length;
+    final knownWords = words.where((word) => _isKnownWord(word, dictionary)).length;
     final dictionaryScore = knownWords / words.length;
 
     final letters = words.join();
@@ -263,8 +263,45 @@ class DetectionEngine {
     // Exact short words need a meaningful score; the old /2 divisor made
     // useful inputs such as "hi" and Arabic "في" impossible to detect.
     final exactWordBoost = knownWords == words.length ? 0.35 : 0.0;
-    final score = dictionaryScore * 0.55 + bigramScore * 0.1 + exactWordBoost;
+    // Names and new words are often absent from the dictionary. If nearly
+    // every token around one such word is known, keep the phrase detectable.
+    final nearCompleteBoost = knownWords >= 3 && dictionaryScore >= 0.75
+        ? 0.35
+        : 0.0;
+    final score = dictionaryScore * 0.55 +
+        bigramScore * 0.1 +
+        (exactWordBoost > nearCompleteBoost ? exactWordBoost : nearCompleteBoost);
     return score.clamp(0.0, 0.99);
+  }
+
+  bool _isKnownWord(String word, Set<String> dictionary) {
+    if (dictionary.contains(word)) return true;
+    // A single wrong physical key should not hide an otherwise very clear
+    // layout mistake. Only apply fuzzy matching to useful-length words so
+    // short names and abbreviations do not trigger warnings accidentally.
+    if (word.length < 4) return false;
+    return dictionary.any(
+      (candidate) => candidate.length >= 4 && _editDistance(word, candidate) <= 1,
+    );
+  }
+
+  int _editDistance(String left, String right) {
+    final previous = List<int>.generate(right.length + 1, (index) => index);
+    for (var i = 1; i <= left.length; i++) {
+      var diagonal = previous[0];
+      previous[0] = i;
+      for (var j = 1; j <= right.length; j++) {
+        final above = previous[j];
+        final cost = left[i - 1] == right[j - 1] ? 0 : 1;
+        previous[j] = [
+          previous[j] + 1,
+          previous[j - 1] + 1,
+          diagonal + cost,
+        ].reduce((a, b) => a < b ? a : b);
+        diagonal = above;
+      }
+    }
+    return previous[right.length];
   }
 
   bool _looksLikeTunisianArabizi(String text) {

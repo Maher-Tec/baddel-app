@@ -18,6 +18,19 @@ void main() {
     expect(result.suggestion, intended);
   });
 
+  test('detects a clear phrase when one converted word has a typo', () {
+    final typed = KeyboardLayout.convert(
+      'herllo my name is maher',
+      LayoutDirection.usToArabic,
+    );
+
+    final result = detector.detect(typed);
+
+    expect(result, isNotNull);
+    expect(result!.shouldWarn, isTrue);
+    expect(result.suggestion, 'herllo my name is maher');
+  });
+
   test('detects Arabic typed while the English layout is active', () {
     const intended = 'مرحبا في من';
     final typed = KeyboardLayout.convert(intended, LayoutDirection.arabicToUs);

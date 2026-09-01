@@ -201,6 +201,11 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
     if (_debugMessages.length > 100) _debugMessages.removeAt(0);
   }
 
+  void _trace(String message) {
+    final stamp = DateTime.now().toIso8601String().substring(11, 23);
+    _addDebugMessage('[trace $stamp] $message');
+  }
+
   Future<void> _copyDebugLog() async {
     await Clipboard.setData(ClipboardData(text: _debugMessages.join('\n')));
     if (!mounted) return;
@@ -223,9 +228,19 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
   }
 
   void _processTypingEvent(KeyboardHookEvent event) {
+    _trace(
+      'hook keyDown=${event.keyDown} injected=${event.injected} '
+      'vk=${event.virtualKey} scan=${event.scanCode} flags=${event.flags} '
+      'mods=ctrl:${event.controlDown},alt:${event.altDown},shift:${event.shiftDown} '
+      'hwnd=${event.foregroundWindow} app="${event.processName}" '
+      'bufferBefore="${_typingBuffer.value}" len=${_typingBuffer.length} '
+      'paused=$_detectionPaused activeWarning=${_lastDetection != null}',
+    );
     if (!event.keyDown || event.injected || _detectionPaused) return;
 
     if (_typingWindow != event.foregroundWindow) {
+      _trace('window changed $_typingWindow -> ${event.foregroundWindow}; resetting buffer/warning');
+      _invalidateActiveWarning();
       _typingWindow = event.foregroundWindow;
       _typingBuffer.reset();
       _detectionPauseTimer?.cancel();
@@ -233,8 +248,12 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
         _hook.hideWarningPopup();
       }
     }
-    if (!widget.settings.isDetectionEnabled(event.processName)) return;
+    if (!widget.settings.isDetectionEnabled(event.processName)) {
+      _trace('ignored: detection disabled for app "${event.processName}"');
+      return;
+    }
     if (KeyboardEventDecoder.resetsBuffer(event)) {
+      _trace('buffer reset key detected');
       _invalidateActiveWarning();
       _typingBuffer.reset();
       _detectionPauseTimer?.cancel();
@@ -242,15 +261,26 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
     }
     if (KeyboardEventDecoder.isBackspace(event)) {
       _typingBuffer.backspace();
+      _trace('backspace -> buffer="${_typingBuffer.value}" len=${_typingBuffer.length}');
       return;
 
     }
 
     final character = KeyboardEventDecoder.decode(event);
-    if (character == null) return;
-    _invalidateActiveWarning();
+    if (character == null) {
+      _trace('decoder returned null');
+      return;
+    }
+    // Keep an active warning visible while the user continues the same typing
+    // burst. It is cleared by Fix, Dismiss, navigation, or a new app window.
     _typingBuffer.append(character, asSingleCaretUnit: true);
     final boundary = character.trim().isEmpty;
+    _trace(
+      'decoded="${_escapeDebug(character)}" boundary=$boundary '
+      'bufferAfter="${_escapeDebug(_typingBuffer.value)}" '
+      'len=${_typingBuffer.length} caretUnits=${_typingBuffer.caretUnitCount} '
+      'shouldEvaluate=${_typingBuffer.shouldEvaluate(atWordBoundary: boundary)}',
+    );
     if (_typingBuffer.shouldEvaluate(atWordBoundary: boundary)) {
       _evaluateTypingBuffer('length/boundary');
     }
@@ -264,16 +294,36 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
     }
   }
 
+  String _escapeDebug(String value) => value
+      .replaceAll('\\', '\\\\')
+      .replaceAll('\r', '\\r')
+      .replaceAll('\n', '\\n')
+      .replaceAll('\t', '\\t');
+
   void _evaluateTypingBuffer(String trigger) {
-    if (_typingBuffer.isEmpty) return;
+    if (_typingBuffer.isEmpty) {
+      _trace('evaluate trigger=$trigger skipped: empty buffer');
+      return;
+    }
     final endsTypingBurst = trigger == 'pause';
     final bufferedText = _typingBuffer.value;
+    final hadActiveWarning = _lastDetection != null;
     _typingBuffer.markEvaluated();
     final app = _lastEvent?.processName ?? 'Unknown app';
     final result = DetectionEngine(
       layoutProfile: widget.settings.layoutProfile,
       warningThreshold: _feedbackStats?.warningThresholdFor(app) ?? 0.82,
     ).detect(bufferedText);
+
+    _trace(
+      'evaluate trigger=$trigger text="${_escapeDebug(bufferedText)}" '
+      'len=${bufferedText.length} app="$app" '
+      'result=${result == null ? 'null' : '${(result.confidence * 100).round()}% '
+          'warn=${result.shouldWarn} suggestion="${_escapeDebug(result.suggestion)}" '
+          'language=${result.suggestedLanguage.name} reason="${result.reason}" '
+          'threshold=${(result.warningThreshold * 100).round()}%'} '
+      'activeBefore=${_lastDetection != null}',
+    );
 
     if (result == null) {
       if (endsTypingBurst) _typingBuffer.reset();
@@ -288,6 +338,10 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
       } else {
         _consecutiveMistakeStreak = 1;
       }
+      _trace(
+        'warning state updated selectionUnits=$_warningSelectionUnits '
+        'trailingUnits=$_warningTrailingUnits popupSuggestion="${_escapeDebug(result.suggestion)}"',
+      );
       _lastMistakeTime = now;
     }
     final funnyTitle = TunisianPersonality.getMessage(
@@ -301,7 +355,10 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
         'Phase 3 detector ($trigger): $percent% confidence, ${result.shouldWarn ? 'warning' : 'no warning'}',
       );
 
-      if (result.shouldWarn) {
+      // Once a warning has been shown, keep it actionable while the user
+      // finishes typing. The score can dip as more words are added, but the
+      // converted suggestion and selection range must continue to grow.
+      if (result.shouldWarn || hadActiveWarning) {
         _lastDetection = result;
         _lastWarningTitle = funnyTitle;
         _warningApp = app;
@@ -309,11 +366,15 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
         _warningTrailingUnits = _typingBuffer.trailingCaretUnitCount;
       }
     });
-    if (endsTypingBurst) {
+    if (endsTypingBurst && (!result.shouldWarn && _lastDetection == null)) {
       _detectionPauseTimer?.cancel();
-      if (!result.shouldWarn) _typingBuffer.reset();
+      _typingBuffer.reset();
     }
-    if (result.shouldWarn) {
+    if (result.shouldWarn || hadActiveWarning) {
+      _trace(
+        'popup refresh requested activeBefore=$hadActiveWarning '
+        'currentWarning=${result.shouldWarn} suggestionLength=${result.suggestion.length}',
+      );
 
       _hook
           .showWarningPopup(
@@ -322,6 +383,7 @@ class _HookTestPageState extends State<HookTestPage> with TrayListener, WindowLi
             confidence: percent,
           )
           .then((shown) {
+            _trace('popup update completed shown=$shown');
             if (!mounted || shown) return;
             setState(
               () => _addDebugMessage('Phase 4 popup could not be shown'),
