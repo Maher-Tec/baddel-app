@@ -41,6 +41,7 @@ class WarningPopup {
   RECT pause_button_ = {};
   HFONT title_font_ = nullptr;
   HFONT body_font_ = nullptr;
+  HFONT label_font_ = nullptr;
   HFONT button_font_ = nullptr;
 };
 
