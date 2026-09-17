@@ -67,6 +67,7 @@ class FlutterWindow : public Win32Window {
   std::string last_capture_status_ = "Idle";
   HWND last_foreground_window_ = nullptr;
   std::optional<std::wstring> captured_selection_text_;
+  bool selection_captured_by_ui_automation_ = false;
   std::wstring detected_selection_prefix_;
   std::wstring detected_selection_suffix_;
   std::optional<std::wstring> last_correction_original_;

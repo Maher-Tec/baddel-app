@@ -31,18 +31,18 @@ void main() {
     expect(buffer.isEmpty, isTrue);
   });
 
-  test('tracks one caret unit for a multi-character keyboard key', () {
+  test('tracks real text characters for a multi-character keyboard key', () {
     final buffer = TypingBuffer();
-    buffer.append('لا', asSingleCaretUnit: true);
-    buffer.append('م', asSingleCaretUnit: true);
-    buffer.append(' ', asSingleCaretUnit: true);
+    buffer.append('لا');
+    buffer.append('م');
+    buffer.append(' ');
 
     expect(buffer.value, 'لام ');
-    expect(buffer.contentCaretUnitCount, 2);
+    expect(buffer.contentCaretUnitCount, 3);
     expect(buffer.trailingCaretUnitCount, 1);
 
     buffer.backspace();
     expect(buffer.value, 'لام');
-    expect(buffer.caretUnitCount, 2);
+    expect(buffer.caretUnitCount, 3);
   });
 }

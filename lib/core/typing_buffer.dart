@@ -1,5 +1,5 @@
 class TypingBuffer {
-  TypingBuffer({this.maxLength = 200});
+  TypingBuffer({this.maxLength = 1000});
 
   final int maxLength;
   String _value = '';
@@ -26,10 +26,15 @@ class TypingBuffer {
     _value += text;
     _caretUnits.addAll(asSingleCaretUnit ? [text] : text.split(''));
     if (_value.length > maxLength) {
-      while (_value.length > maxLength && _caretUnits.isNotEmpty) {
-        final removed = _caretUnits.removeAt(0);
-        _value = _value.substring(removed.length);
+      var excessLength = _value.length - maxLength;
+      var removedCount = 0;
+      var removedLength = 0;
+      while (removedLength < excessLength && removedCount < _caretUnits.length) {
+        removedLength += _caretUnits[removedCount].length;
+        removedCount++;
       }
+      _caretUnits.removeRange(0, removedCount);
+      _value = _value.substring(removedLength);
     }
   }
 

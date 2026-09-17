@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:badeli/main.dart' hide PrivacyOnboardingPage;
+import 'package:badeli/main.dart';
 import 'package:badeli/screens/onboarding_page.dart';
 import 'package:badeli/settings/app_settings.dart';
 
@@ -14,31 +14,27 @@ void main() {
 
     await tester.pumpWidget(BaddelApp(enableDesktopShell: false));
 
-    expect(find.text('Baddel! Keyboard Language Helper'), findsOneWidget);
-    expect(find.text('Start hook'), findsOneWidget);
-    expect(find.text('Personality & Humor'), findsOneWidget);
-    expect(find.text('Apps'), findsOneWidget);
-
-    // Switch to Developer mode to verify dev metrics
-    await tester.tap(find.text('Developer'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Events received: 0'), findsOneWidget);
+    expect(find.text('Baddel!'), findsOneWidget);
+    expect(find.text('Start protection'), findsOneWidget);
+    expect(find.text('Try Baddel'), findsOneWidget);
+    expect(find.text('Protected apps'), findsOneWidget);
   });
 
   testWidgets('guides a new user through onboarding', (tester) async {
     final settings = AppSettings.inMemory(onboardingComplete: false);
-    await tester.pumpWidget(MaterialApp(home: PrivacyOnboardingPage(settings: settings)));
+    await tester.pumpWidget(
+      MaterialApp(home: PrivacyOnboardingPage(settings: settings)),
+    );
 
-    expect(find.text('Welcome to Baddel!'), findsOneWidget);
+    expect(find.text('Your typing, on the right language.'), findsOneWidget);
+    await tester.tap(find.text('Start setup'));
+    await tester.pump();
+    expect(find.text('Which keyboard do you use?'), findsOneWidget);
     await tester.tap(find.text('Continue'));
     await tester.pump();
-    expect(find.text('Choose your apps'), findsOneWidget);
+    expect(find.text('Where should Baddel help?'), findsOneWidget);
     await tester.tap(find.text('Continue'));
     await tester.pump();
-    expect(find.text('Choose your style'), findsOneWidget);
-    await tester.tap(find.text('Continue'));
-    await tester.pump();
-    expect(find.text('You are ready!'), findsOneWidget);
+    expect(find.text('You are ready to go.'), findsOneWidget);
   });
 }

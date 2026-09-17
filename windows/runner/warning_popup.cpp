@@ -7,7 +7,7 @@
 namespace {
 constexpr wchar_t kWarningPopupClass[] = L"BaddelWarningPopup";
 constexpr int kPopupWidth = 420;
-constexpr int kPopupHeight = 220;
+constexpr int kPopupHeight = 244;
 
 // Color palette
 constexpr COLORREF kHeaderBg      = RGB(15,  20,  35);   // deep navy
@@ -141,7 +141,9 @@ bool WarningPopup::Show(const std::wstring& title,
   SetWindowPos(window_, HWND_TOPMOST, x, y, kPopupWidth, kPopupHeight,
                SWP_NOACTIVATE | SWP_SHOWWINDOW);
   if (!visible) {
-    AnimateWindow(window_, 140, AW_SLIDE | AW_VER_NEGATIVE | AW_ACTIVATE);
+    // Keep focus in the app where the user is typing. Activating this helper
+    // window makes the native selection check fail when they press Correct.
+    AnimateWindow(window_, 140, AW_SLIDE | AW_VER_NEGATIVE);
   }
   InvalidateRect(window_, nullptr, TRUE);
   return true;
@@ -213,7 +215,7 @@ void WarningPopup::Paint(HWND window) {
   FillRectangle(dc, client, kBodyBg);
 
   // ── Dark header band (top 58 px) ───────────────────────────────────────────
-  RECT header = {0, 0, kPopupWidth, 58};
+  RECT header = {0, 0, kPopupWidth, 72};
   FillRectangle(dc, header, kHeaderBg);
 
   // Cyan accent strip at very top (4 px)
@@ -233,8 +235,8 @@ void WarningPopup::Paint(HWND window) {
   // Separate header from body with a thin accent line
   HPEN sep_pen = CreatePen(PS_SOLID, 1, kHeaderAccent);
   old_pen      = SelectObject(dc, sep_pen);
-  MoveToEx(dc, 0, 58, nullptr);
-  LineTo(dc, kPopupWidth, 58);
+  MoveToEx(dc, 0, 72, nullptr);
+  LineTo(dc, kPopupWidth, 72);
   SelectObject(dc, old_pen);
   DeleteObject(sep_pen);
 
@@ -249,24 +251,24 @@ void WarningPopup::Paint(HWND window) {
   // ── Title (white on dark) ──────────────────────────────────────────────────
   SelectObject(dc, title_font_);
   SetTextColor(dc, RGB(235, 240, 255));
-  RECT title_rect = {46, 17, kPopupWidth - 36, 41};
+  RECT title_rect = {46, 12, kPopupWidth - 38, 62};
   const std::wstring display_title =
       title_.empty()
           ? L"Baddel! \U0001F602 \u0646\u0633\u064A\u062A \u0627\u0644\u0643\u0644\u0627\u0641\u064A\u064A\u061F"
           : title_;
   DrawTextW(dc, display_title.c_str(), -1, &title_rect,
-            DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS);
+            DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
 
   // ── Drag grip (top-right corner of header) ────────────────────────────────
   SetTextColor(dc, RGB(80, 105, 130));
   SelectObject(dc, label_font_);
-  RECT grip = {kPopupWidth - 30, 18, kPopupWidth - 8, 42};
+  RECT grip = {kPopupWidth - 30, 24, kPopupWidth - 8, 48};
   DrawTextW(dc, L"⠿", -1, &grip, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
   // ── Body: suggestion text ─────────────────────────────────────────────────
   SelectObject(dc, body_font_);
   SetTextColor(dc, RGB(40, 50, 70));
-  RECT sug = {16, 66, kPopupWidth - 16, 118};
+  RECT sug = {16, 80, kPopupWidth - 16, 142};
   DrawTextW(dc, suggestion_.c_str(), -1, &sug,
             DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
 
@@ -281,19 +283,19 @@ void WarningPopup::Paint(HWND window) {
       std::to_wstring(confidence_) + L"% confidence";
   SelectObject(dc, label_font_);
   SetTextColor(dc, RGB(100, 115, 135));
-  RECT conf_label_rect = {16, 120, kPopupWidth - 16, 136};
+  RECT conf_label_rect = {16, 146, kPopupWidth - 16, 162};
   DrawTextW(dc, conf_label.c_str(), -1, &conf_label_rect,
             DT_LEFT | DT_SINGLELINE);
 
   // Progress bar track + fill
-  RECT bar_track = {16, 138, kPopupWidth - 16, 146};
+  RECT bar_track = {16, 164, kPopupWidth - 16, 172};
   DrawProgressBar(dc, bar_track, confidence_, bar_color);
 
   // ── Buttons row ───────────────────────────────────────────────────────────
   // [ 🚀 Fasakh & Baddel ]   [ 🙈 5allini ]   [ ⏸ Pause ]
-  fix_button_     = {16,  158, 210, 198};
-  dismiss_button_ = {218, 158, 316, 198};
-  pause_button_   = {324, 158, 404, 198};
+  fix_button_     = {16,  188, 210, 228};
+  dismiss_button_ = {218, 188, 316, 228};
+  pause_button_   = {324, 188, 404, 228};
 
   // Fix (primary – cyan)
   DrawRounded(dc, fix_button_, kFixFill, kFixFillDark, 1, 14);
@@ -306,7 +308,7 @@ void WarningPopup::Paint(HWND window) {
 
   // Fix label
   SetTextColor(dc, RGB(255, 255, 255));
-  DrawTextW(dc, L"\U0001F680 Fasakh", -1, &fix_button_,
+  DrawTextW(dc, L"\U0001F680 Correct it", -1, &fix_button_,
             DT_CENTER | DT_VCENTER | DT_SINGLELINE);
 
   // Dismiss label

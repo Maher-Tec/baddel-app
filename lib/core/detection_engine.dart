@@ -2,6 +2,10 @@ import 'keyboard_layout.dart';
 
 enum SuggestedLanguage { english, arabic }
 
+/// Shared with [DetectionEngine.warningThreshold] so the two defaults can't
+/// drift apart.
+const double defaultWarningThreshold = 0.82;
+
 class DetectionResult {
   const DetectionResult({
     required this.original,
@@ -9,7 +13,7 @@ class DetectionResult {
     required this.suggestedLanguage,
     required this.confidence,
     required this.reason,
-    this.warningThreshold = 0.82,
+    this.warningThreshold = defaultWarningThreshold,
   });
 
   final String original;
@@ -27,11 +31,47 @@ class DetectionResult {
 class DetectionEngine {
   const DetectionEngine({
     this.layoutProfile = KeyboardLayoutProfile.usQwerty,
-    this.warningThreshold = 0.82,
+    this.warningThreshold = defaultWarningThreshold,
   });
 
   final KeyboardLayoutProfile layoutProfile;
   final double warningThreshold;
+
+  // Sentence-shape gate (_scoreEnglish): a run of text is only treated as a
+  // deliberate English sentence, rather than a coincidence, once it clears
+  // all three of these bars.
+  static const int _sentenceShapeMinWords = 4;
+  static const double _sentenceShapeEnglishRatio = 0.8;
+  static const int _sentenceShapeMinConnectors = 1;
+  // Confidence floor applied once text is confirmed to have English
+  // sentence shape, or a clear-enough phrase shape despite dictionary
+  // misses (see _score) — never let either case score below this.
+  static const double _clearPhraseFloor = 0.84;
+
+  // _looksLikeEnglishWord: a word needs at least one vowel but not an
+  // implausibly vowel-heavy ratio, and no implausible run of consonants, to
+  // look like real English.
+  static const double _vowelRatioMax = 2 / 3;
+  static const int _consonantRunLength = 5;
+
+  // _score: dictionary/bigram weighting and the boosts applied when most or
+  // all words are recognized.
+  static const double _dictionaryWeight = 0.55;
+  static const double _bigramWeight = 0.1;
+  static const double _exactWordBoost = 0.35;
+  static const int _nearCompleteMinKnownWords = 3;
+  static const double _nearCompleteDictionaryRatio = 0.75;
+  static const double _nearCompleteBoost = 0.35;
+  static const int _toleranceMinWords = 4;
+  static const int _toleranceMinKnownWords = 3;
+  static const double _toleranceMinDictionaryRatio = 0.6;
+  static const double _scoreClampMax = 0.99;
+
+  // _isKnownWord: fuzzy (edit-distance) matching only applies to words long
+  // enough that a one-letter typo is meaningfully distinguishable from a
+  // different short word.
+  static const int _fuzzyMinWordLength = 4;
+  static const int _fuzzyMaxEditDistance = 1;
 
   static const Set<String> _englishWords = {
     'a',
@@ -231,14 +271,52 @@ class DetectionEngine {
     final words = RegExp(
       r'[A-Za-z]+',
     ).allMatches(text.toLowerCase()).map((match) => match.group(0)!).toList();
-    return _score(words, {..._englishWords, ..._shortEnglishWords}, _englishBigrams);
+    final score = _score(words, {
+      ..._englishWords,
+      ..._shortEnglishWords,
+    }, _englishBigrams);
+    // A small dictionary is useful for precision, but it must not be the
+    // deciding factor for every real sentence. Wrong-layout text preserves
+    // spaces, word boundaries, and the spelling shape of English even when
+    // names or ordinary words are absent from our local word list.
+    //
+    // Require both an English-looking sentence and at least one connector
+    // word (for example "to", "you", "in", or "i") to avoid warning on
+    // arbitrary Arabic text that happens to convert to Latin characters.
+    final englishLikeWords = words.where(_looksLikeEnglishWord).length;
+    final connectorWords = words.where(_isEnglishConnector).length;
+    final hasEnglishSentenceShape =
+        words.length >= _sentenceShapeMinWords &&
+        englishLikeWords / words.length >= _sentenceShapeEnglishRatio &&
+        connectorWords >= _sentenceShapeMinConnectors;
+    if (hasEnglishSentenceShape && score < _clearPhraseFloor) {
+      return _clearPhraseFloor;
+    }
+    return score;
   }
+
+  bool _looksLikeEnglishWord(String word) {
+    if (word.length < 2) return word == 'i' || _shortEnglishWords.contains(word);
+    final vowels = RegExp(r'[aeiouy]').allMatches(word).length;
+    if (vowels == 0 || vowels / word.length > _vowelRatioMax) return false;
+    // Five consecutive consonants are unusual in ordinary English words but
+    // common in random layout conversions.
+    return !RegExp('[^aeiouy]{$_consonantRunLength,}').hasMatch(word);
+  }
+
+  bool _isEnglishConnector(String word) => const {
+    'a', 'and', 'are', 'i', 'im', 'in', 'is', 'it', 'my', 'of', 'the',
+    'this', 'to', 'we', 'you', 'your',
+  }.contains(word);
 
   double _scoreArabic(String text) {
     final words = RegExp(
       r'[\u0600-\u06ff]+',
     ).allMatches(text).map((match) => match.group(0)!).toList();
-    return _score(words, {..._arabicWords, ..._shortArabicWords}, _arabicBigrams);
+    return _score(words, {
+      ..._arabicWords,
+      ..._shortArabicWords,
+    }, _arabicBigrams);
   }
 
   double _score(
@@ -247,7 +325,9 @@ class DetectionEngine {
     Set<String> bigrams,
   ) {
     if (words.isEmpty) return 0;
-    final knownWords = words.where((word) => _isKnownWord(word, dictionary)).length;
+    final knownWords = words
+        .where((word) => _isKnownWord(word, dictionary))
+        .length;
     final dictionaryScore = knownWords / words.length;
 
     final letters = words.join();
@@ -262,16 +342,34 @@ class DetectionEngine {
     final bigramScore = bigramCount == 0 ? 0.0 : bigramMatches / bigramCount;
     // Exact short words need a meaningful score; the old /2 divisor made
     // useful inputs such as "hi" and Arabic "في" impossible to detect.
-    final exactWordBoost = knownWords == words.length ? 0.35 : 0.0;
+    final exactWordBoost = knownWords == words.length
+        ? _exactWordBoost
+        : 0.0;
     // Names and new words are often absent from the dictionary. If nearly
     // every token around one such word is known, keep the phrase detectable.
-    final nearCompleteBoost = knownWords >= 3 && dictionaryScore >= 0.75
-        ? 0.35
+    final nearCompleteBoost =
+        knownWords >= _nearCompleteMinKnownWords &&
+            dictionaryScore >= _nearCompleteDictionaryRatio
+        ? _nearCompleteBoost
         : 0.0;
-    final score = dictionaryScore * 0.55 +
-        bigramScore * 0.1 +
-        (exactWordBoost > nearCompleteBoost ? exactWordBoost : nearCompleteBoost);
-    return score.clamp(0.0, 0.99);
+    final score =
+        dictionaryScore * _dictionaryWeight +
+        bigramScore * _bigramWeight +
+        (exactWordBoost > nearCompleteBoost
+            ? exactWordBoost
+            : nearCompleteBoost);
+    // A wrong keyboard layout often comes with one accidental physical key
+    // press, and names are deliberately absent from this small dictionary.
+    // Do not make a clear sentence invisible just because one or two tokens
+    // are imperfect: "hello mny name is maher" still has a very clear shape.
+    final hasClearPhraseDespiteErrors =
+        words.length >= _toleranceMinWords &&
+        knownWords >= _toleranceMinKnownWords &&
+        dictionaryScore >= _toleranceMinDictionaryRatio;
+    final toleratedScore = hasClearPhraseDespiteErrors && score < _clearPhraseFloor
+        ? _clearPhraseFloor
+        : score;
+    return toleratedScore.clamp(0.0, _scoreClampMax);
   }
 
   bool _isKnownWord(String word, Set<String> dictionary) {
@@ -279,9 +377,11 @@ class DetectionEngine {
     // A single wrong physical key should not hide an otherwise very clear
     // layout mistake. Only apply fuzzy matching to useful-length words so
     // short names and abbreviations do not trigger warnings accidentally.
-    if (word.length < 4) return false;
+    if (word.length < _fuzzyMinWordLength) return false;
     return dictionary.any(
-      (candidate) => candidate.length >= 4 && _editDistance(word, candidate) <= 1,
+      (candidate) =>
+          candidate.length >= _fuzzyMinWordLength &&
+          _editDistance(word, candidate) <= _fuzzyMaxEditDistance,
     );
   }
 
@@ -309,8 +409,17 @@ class DetectionEngine {
     if (RegExp(r'[3579]').hasMatch(lower)) return true;
     final words = RegExp(r'[a-z]+').allMatches(lower).map((m) => m.group(0)!);
     const markers = {
-      'w', 'ya', 'ena', 'ani', 'chnowa', '3lech', 'ma5demch', 'mrigel',
-      'barsha', 'behi', 'sbeh',
+      'w',
+      'ya',
+      'ena',
+      'ani',
+      'chnowa',
+      '3lech',
+      'ma5demch',
+      'mrigel',
+      'barsha',
+      'behi',
+      'sbeh',
     };
     return words.any(markers.contains);
   }

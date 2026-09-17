@@ -5,13 +5,16 @@
 #include <string>
 #include <chrono>
 #include <cstring>
+#include <cwctype>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 
 #include <UIAutomation.h>
+#include <wrl/client.h>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -40,7 +43,7 @@ bool IsExtendedKeyboardKey(WORD virtual_key) {
   }
 }
 
-void SendKey(WORD virtual_key, bool key_up = false) {
+UINT SendKey(WORD virtual_key, bool key_up = false) {
   INPUT input = {};
   input.type = INPUT_KEYBOARD;
   input.ki.wVk = virtual_key;
@@ -48,7 +51,40 @@ void SendKey(WORD virtual_key, bool key_up = false) {
                      (IsExtendedKeyboardKey(virtual_key)
                           ? KEYEVENTF_EXTENDEDKEY
                           : 0);
-  SendInput(1, &input, sizeof(INPUT));
+  return SendInput(1, &input, sizeof(INPUT));
+}
+
+bool SendUnicodeText(const std::wstring& text) {
+  if (text.empty()) return false;
+  std::vector<INPUT> inputs;
+  inputs.reserve(text.size() * 2);
+  for (const wchar_t character : text) {
+    INPUT down = {};
+    down.type = INPUT_KEYBOARD;
+    down.ki.wScan = character;
+    down.ki.dwFlags = KEYEVENTF_UNICODE;
+    inputs.push_back(down);
+
+    INPUT up = down;
+    up.ki.dwFlags |= KEYEVENTF_KEYUP;
+    inputs.push_back(up);
+  }
+  return SendInput(static_cast<UINT>(inputs.size()), inputs.data(),
+                   sizeof(INPUT)) == inputs.size();
+}
+
+int CountWords(const std::wstring& text) {
+  int count = 0;
+  bool inside_word = false;
+  for (const wchar_t character : text) {
+    if (std::iswspace(character)) {
+      inside_word = false;
+    } else if (!inside_word) {
+      inside_word = true;
+      ++count;
+    }
+  }
+  return count;
 }
 
 bool OpenClipboardWithRetry(HWND owner, int attempts = 10) {
@@ -209,7 +245,8 @@ bool IsSafeClipboardSnapshotFormat(UINT format) {
 enum class UiAutomationSelectionResult { kUnavailable, kSelected, kFailed };
 
 UiAutomationSelectionResult SelectDetectedRangeWithUiAutomation(
-    int selection_units, int trailing_units) {
+    int selection_units, int trailing_units, const std::wstring& expected,
+    std::wstring* selected_text) {
   const HRESULT initialize_result =
       CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
   const bool should_uninitialize = SUCCEEDED(initialize_result);
@@ -217,48 +254,40 @@ UiAutomationSelectionResult SelectDetectedRangeWithUiAutomation(
     return UiAutomationSelectionResult::kUnavailable;
   }
 
-  IUIAutomation* automation = nullptr;
-  IUIAutomationElement* focused_element = nullptr;
-  IUnknown* pattern_unknown = nullptr;
-  IUIAutomationTextPattern2* text_pattern = nullptr;
-  IUIAutomationTextPattern* legacy_text_pattern = nullptr;
-  IUIAutomationTextRangeArray* selection_ranges = nullptr;
-  IUIAutomationTextRange* caret_range = nullptr;
+  Microsoft::WRL::ComPtr<IUIAutomation> automation;
+  Microsoft::WRL::ComPtr<IUIAutomationElement> focused_element;
+  Microsoft::WRL::ComPtr<IUnknown> pattern_unknown;
+  Microsoft::WRL::ComPtr<IUIAutomationTextPattern2> text_pattern;
+  Microsoft::WRL::ComPtr<IUIAutomationTextPattern> legacy_text_pattern;
+  Microsoft::WRL::ComPtr<IUIAutomationTextRangeArray> selection_ranges;
+  Microsoft::WRL::ComPtr<IUIAutomationTextRange> caret_range;
+  Microsoft::WRL::ComPtr<IUIAutomationTextRange> attempt_range;
 
   const auto finish = [&](UiAutomationSelectionResult selection_result) {
-    if (caret_range != nullptr) caret_range->Release();
-    if (selection_ranges != nullptr) selection_ranges->Release();
-    if (legacy_text_pattern != nullptr) legacy_text_pattern->Release();
-    if (text_pattern != nullptr) text_pattern->Release();
-    if (pattern_unknown != nullptr) pattern_unknown->Release();
-    if (focused_element != nullptr) focused_element->Release();
-    if (automation != nullptr) automation->Release();
     if (should_uninitialize) CoUninitialize();
     return selection_result;
   };
 
   HRESULT result = CoCreateInstance(CLSID_CUIAutomation, nullptr,
                                     CLSCTX_INPROC_SERVER,
-                                    IID_PPV_ARGS(&automation));
+                                    IID_PPV_ARGS(automation.GetAddressOf()));
   if (FAILED(result) || automation == nullptr) {
     return finish(UiAutomationSelectionResult::kUnavailable);
   }
-  result = automation->GetFocusedElement(&focused_element);
+  result = automation->GetFocusedElement(focused_element.GetAddressOf());
   if (FAILED(result) || focused_element == nullptr) {
     return finish(UiAutomationSelectionResult::kUnavailable);
   }
-  result = focused_element->GetCurrentPattern(UIA_TextPattern2Id,
-                                               &pattern_unknown);
+  result = focused_element->GetCurrentPattern(
+      UIA_TextPattern2Id, pattern_unknown.GetAddressOf());
   if (SUCCEEDED(result) && pattern_unknown != nullptr) {
-    result = pattern_unknown->QueryInterface(IID_PPV_ARGS(&text_pattern));
+    result = pattern_unknown.As(&text_pattern);
     if (SUCCEEDED(result) && text_pattern != nullptr) {
       BOOL caret_is_active = FALSE;
-      result = text_pattern->GetCaretRange(&caret_is_active, &caret_range);
+      result = text_pattern->GetCaretRange(&caret_is_active,
+                                           caret_range.GetAddressOf());
       if (FAILED(result) || !caret_is_active) {
-        if (caret_range != nullptr) {
-          caret_range->Release();
-          caret_range = nullptr;
-        }
+        caret_range.Reset();
       }
     }
   }
@@ -266,25 +295,18 @@ UiAutomationSelectionResult SelectDetectedRangeWithUiAutomation(
   // Older providers, including many RichEdit controls, expose TextPattern v1
   // only. With no selection they return one degenerate range at the caret.
   if (caret_range == nullptr) {
-    if (text_pattern != nullptr) {
-      text_pattern->Release();
-      text_pattern = nullptr;
-    }
-    if (pattern_unknown != nullptr) {
-      pattern_unknown->Release();
-      pattern_unknown = nullptr;
-    }
-    result = focused_element->GetCurrentPattern(UIA_TextPatternId,
-                                                 &pattern_unknown);
+    text_pattern.Reset();
+    pattern_unknown.Reset();
+    result = focused_element->GetCurrentPattern(
+        UIA_TextPatternId, pattern_unknown.ReleaseAndGetAddressOf());
     if (FAILED(result) || pattern_unknown == nullptr) {
       return finish(UiAutomationSelectionResult::kUnavailable);
     }
-    result =
-        pattern_unknown->QueryInterface(IID_PPV_ARGS(&legacy_text_pattern));
+    result = pattern_unknown.As(&legacy_text_pattern);
     if (FAILED(result) || legacy_text_pattern == nullptr) {
       return finish(UiAutomationSelectionResult::kUnavailable);
     }
-    result = legacy_text_pattern->GetSelection(&selection_ranges);
+    result = legacy_text_pattern->GetSelection(selection_ranges.GetAddressOf());
     if (FAILED(result) || selection_ranges == nullptr) {
       return finish(UiAutomationSelectionResult::kUnavailable);
     }
@@ -293,35 +315,127 @@ UiAutomationSelectionResult SelectDetectedRangeWithUiAutomation(
     if (FAILED(result) || range_count != 1) {
       return finish(UiAutomationSelectionResult::kUnavailable);
     }
-    result = selection_ranges->GetElement(0, &caret_range);
+    result = selection_ranges->GetElement(0, caret_range.ReleaseAndGetAddressOf());
     if (FAILED(result) || caret_range == nullptr) {
       return finish(UiAutomationSelectionResult::kUnavailable);
     }
     int endpoint_comparison = 0;
     result = caret_range->CompareEndpoints(
-        TextPatternRangeEndpoint_Start, caret_range,
+        TextPatternRangeEndpoint_Start, caret_range.Get(),
         TextPatternRangeEndpoint_End, &endpoint_comparison);
     if (FAILED(result) || endpoint_comparison != 0) {
       return finish(UiAutomationSelectionResult::kUnavailable);
     }
   }
 
-  int moved = 0;
-  if (trailing_units > 0) {
-    result = caret_range->Move(TextUnit_Character, -trailing_units, &moved);
-    if (FAILED(result) || moved != -trailing_units) {
-      return finish(UiAutomationSelectionResult::kFailed);
+  // VS Code's UI Automation provider can count a soft-wrap/bidi boundary as
+  // one extra character. Start with the recorded position, then try the two
+  // adjacent positions. We only select a candidate when its text is exactly
+  // what Dart detected, so this calibration cannot replace unrelated text.
+  std::wstring closest_text;
+  bool had_candidate = false;
+  for (const int trailing_adjustment : {0, 1, -1}) {
+    const int actual_trailing = trailing_units + trailing_adjustment;
+    if (actual_trailing < 0) continue;
+    result = caret_range->Clone(attempt_range.ReleaseAndGetAddressOf());
+    if (FAILED(result) || attempt_range == nullptr) continue;
+
+    int moved = 0;
+    if (actual_trailing > 0) {
+      result = attempt_range->Move(TextUnit_Character, -actual_trailing,
+                                   &moved);
+      if (FAILED(result) || moved != -actual_trailing) {
+        attempt_range.Reset();
+        continue;
+      }
     }
+    result = attempt_range->MoveEndpointByUnit(
+        TextPatternRangeEndpoint_Start, TextUnit_Character, -selection_units,
+        &moved);
+    if (FAILED(result) || moved != -selection_units) {
+      attempt_range.Reset();
+      continue;
+    }
+
+    BSTR range_text = nullptr;
+    result = attempt_range->GetText(-1, &range_text);
+    std::wstring candidate;
+    if (SUCCEEDED(result) && range_text != nullptr) candidate = range_text;
+    if (range_text != nullptr) SysFreeString(range_text);
+    if (!had_candidate) {
+      closest_text = candidate;
+      had_candidate = true;
+    }
+    if (candidate == expected) {
+      if (selected_text != nullptr) *selected_text = candidate;
+      result = attempt_range->Select();
+      return finish(SUCCEEDED(result) ? UiAutomationSelectionResult::kSelected
+                                      : UiAutomationSelectionResult::kFailed);
+    }
+    attempt_range.Reset();
   }
-  result = caret_range->MoveEndpointByUnit(
-      TextPatternRangeEndpoint_Start, TextUnit_Character, -selection_units,
-      &moved);
-  if (FAILED(result) || moved != -selection_units) {
-    return finish(UiAutomationSelectionResult::kFailed);
+
+  if (selected_text != nullptr) *selected_text = closest_text;
+  // No candidate's text matched `expected`, so `.Select()` was never called
+  // and nothing changed on screen: this is always a failure to select the
+  // exact detected range, whether or not a (mismatched) candidate existed.
+  return finish(UiAutomationSelectionResult::kFailed);
+}
+
+std::optional<std::wstring> ReadSelectedTextWithUiAutomation() {
+  const HRESULT initialize_result =
+      CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  const bool should_uninitialize = SUCCEEDED(initialize_result);
+  if (FAILED(initialize_result) && initialize_result != RPC_E_CHANGED_MODE) {
+    return std::nullopt;
   }
-  result = caret_range->Select();
-  return finish(SUCCEEDED(result) ? UiAutomationSelectionResult::kSelected
-                                  : UiAutomationSelectionResult::kFailed);
+
+  IUIAutomation* automation = nullptr;
+  IUIAutomationElement* focused_element = nullptr;
+  IUnknown* pattern_unknown = nullptr;
+  IUIAutomationTextPattern* text_pattern = nullptr;
+  IUIAutomationTextRangeArray* selection_ranges = nullptr;
+  IUIAutomationTextRange* selection_range = nullptr;
+  const auto finish = [&](std::optional<std::wstring> value) {
+    if (selection_range != nullptr) selection_range->Release();
+    if (selection_ranges != nullptr) selection_ranges->Release();
+    if (text_pattern != nullptr) text_pattern->Release();
+    if (pattern_unknown != nullptr) pattern_unknown->Release();
+    if (focused_element != nullptr) focused_element->Release();
+    if (automation != nullptr) automation->Release();
+    if (should_uninitialize) CoUninitialize();
+    return value;
+  };
+
+  if (FAILED(CoCreateInstance(CLSID_CUIAutomation, nullptr,
+                              CLSCTX_INPROC_SERVER,
+                              IID_PPV_ARGS(&automation))) ||
+      automation == nullptr ||
+      FAILED(automation->GetFocusedElement(&focused_element)) ||
+      focused_element == nullptr ||
+      FAILED(focused_element->GetCurrentPattern(
+          UIA_TextPatternId, &pattern_unknown)) ||
+      pattern_unknown == nullptr ||
+      FAILED(pattern_unknown->QueryInterface(IID_PPV_ARGS(&text_pattern))) ||
+      text_pattern == nullptr ||
+      FAILED(text_pattern->GetSelection(&selection_ranges)) ||
+      selection_ranges == nullptr) {
+    return finish(std::nullopt);
+  }
+  int range_count = 0;
+  if (FAILED(selection_ranges->get_Length(&range_count)) || range_count != 1 ||
+      FAILED(selection_ranges->GetElement(0, &selection_range)) ||
+      selection_range == nullptr) {
+    return finish(std::nullopt);
+  }
+  BSTR text = nullptr;
+  const HRESULT text_result = selection_range->GetText(-1, &text);
+  std::optional<std::wstring> value;
+  if (SUCCEEDED(text_result) && text != nullptr && SysStringLen(text) > 0) {
+    value = std::wstring(text, SysStringLen(text));
+  }
+  if (text != nullptr) SysFreeString(text);
+  return finish(value);
 }
 
 }  // namespace
@@ -405,7 +519,7 @@ bool FlutterWindow::OnCreate() {
               std::get_if<int32_t>(&trailing_units_iterator->second);
           if (expected_utf8 == nullptr || expected_utf8->empty() ||
               selection_units == nullptr || *selection_units <= 0 ||
-              *selection_units > 200 || trailing_units == nullptr ||
+              *selection_units > 1000 || trailing_units == nullptr ||
               *trailing_units < 0 || *trailing_units > 16) {
             result->Error("INVALID_DETECTION",
                           "Detected-text arguments are invalid.");
@@ -664,6 +778,14 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
 
 std::optional<std::wstring> FlutterWindow::CaptureSelectedText() {
   captured_selection_text_.reset();
+  selection_captured_by_ui_automation_ = false;
+  if (const auto selected = ReadSelectedTextWithUiAutomation();
+      selected.has_value()) {
+    captured_selection_text_ = *selected;
+    selection_captured_by_ui_automation_ = true;
+    EmitDebug("Phase 4 selected text read directly with UI Automation");
+    return selected;
+  }
   if (!SaveClipboardSnapshot()) {
     last_capture_status_ = "Could not open the clipboard before Ctrl+C.";
     EmitDebug(last_capture_status_);
@@ -780,6 +902,13 @@ bool FlutterWindow::RevalidateSelectionBeforePaste() {
     EmitDebug("5/7 Paste refused: foreground window changed");
     return false;
   }
+  if (selection_captured_by_ui_automation_) {
+    // UI Automation supplied the exact selected range directly. Do not ask
+    // VS Code to copy it again: Electron can leave its clipboard busy or
+    // empty for a long selection even though the text range is still valid.
+    EmitDebug("5/7 UI Automation range accepted without clipboard recopy");
+    return true;
+  }
 
   // Use the already-saved clipboard snapshot. Clearing the live clipboard
   // prevents stale data from looking like a successful second Ctrl+C.
@@ -817,16 +946,24 @@ std::optional<std::wstring> FlutterWindow::CaptureDetectedText(
     const std::wstring& expected, int selection_units, int trailing_units) {
   detected_selection_prefix_.clear();
   detected_selection_suffix_.clear();
+  selection_captured_by_ui_automation_ = false;
   const HWND target = last_foreground_window_;
   if (target == nullptr || !IsWindow(target) || GetForegroundWindow() != target) {
     EmitDebug("Phase 4 fix refused: target window is no longer foreground");
     return std::nullopt;
   }
 
+  std::wstring automation_selection;
   const auto automation_result = SelectDetectedRangeWithUiAutomation(
-      selection_units, trailing_units);
+      selection_units, trailing_units, expected, &automation_selection);
   if (automation_result == UiAutomationSelectionResult::kSelected) {
     EmitDebug("Phase 4 selected logical caret range with UI Automation");
+    if (AcceptDetectedSelection(automation_selection, expected)) {
+      captured_selection_text_ = automation_selection;
+      selection_captured_by_ui_automation_ = true;
+      EmitDebug("Phase 4 UI Automation range read and validated directly");
+      return expected;
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(40));
     const auto selected = CaptureSelectedText();
     if (selected.has_value() && AcceptDetectedSelection(*selected, expected)) {
@@ -847,6 +984,39 @@ std::optional<std::wstring> FlutterWindow::CaptureDetectedText(
               "using line-range fallback");
   } else {
     EmitDebug("Phase 4 UI Automation unavailable; using line-range fallback");
+  }
+
+  // In VS Code a wrapped line is not necessarily a logical line. Shift+Home
+  // therefore stops at the visual row and cannot capture a long sentence.
+  // Select the detected number of words instead; Ctrl+Shift+Left follows text
+  // boundaries rather than the visible wrapping. The captured result is still
+  // checked against `expected` before any replacement can happen.
+  const int word_count = CountWords(expected);
+  if (automation_result == UiAutomationSelectionResult::kUnavailable &&
+      word_count >= 2) {
+    SendKey(VK_CONTROL);
+    SendKey(VK_SHIFT);
+    for (int index = 0; index < word_count; ++index) {
+      SendKey(VK_LEFT);
+      std::this_thread::sleep_for(std::chrono::milliseconds(12));
+    }
+    SendKey(VK_SHIFT, true);
+    SendKey(VK_CONTROL, true);
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
+
+    const auto word_selection = CaptureSelectedText();
+    if (word_selection.has_value() &&
+        AcceptDetectedSelection(*word_selection, expected)) {
+      EmitDebug("Phase 4 word-range uniquely revalidated detection");
+      return expected;
+    }
+    if (word_selection.has_value()) {
+      EmitDebug("Phase 4 word range captured " +
+                std::to_string(word_selection->size()) +
+                " characters but did not uniquely contain detection");
+      RestoreClipboardSnapshot();
+    }
+    captured_selection_text_.reset();
   }
 
   // Shift+Home creates a real selection from the caret to the logical line
@@ -1001,12 +1171,8 @@ bool FlutterWindow::PasteReplacement(const std::string& replacement) {
   detected_selection_prefix_.clear();
   detected_selection_suffix_.clear();
   const HWND correction_window = last_foreground_window_;
+  const bool replace_with_unicode_input = selection_captured_by_ui_automation_;
   if (!RevalidateSelectionBeforePaste()) {
-    RestoreClipboardSnapshot();
-    return false;
-  }
-  if (!OpenClipboardWithRetry(GetHandle())) {
-    EmitDebug("5/7 Paste failed: could not open clipboard");
     RestoreClipboardSnapshot();
     return false;
   }
@@ -1020,6 +1186,28 @@ bool FlutterWindow::PasteReplacement(const std::string& replacement) {
   if (!preserved_prefix.empty() || !preserved_suffix.empty()) {
     wide = preserved_prefix + wide + preserved_suffix;
     EmitDebug("Phase 4 composing replacement with preserved bidi context");
+  }
+  if (replace_with_unicode_input) {
+    // A verified UI Automation selection is already active. Unicode input
+    // replaces that selection atomically in VS Code, avoiding a separate
+    // Backspace that could delete text if clipboard paste is delayed.
+    if (!SendUnicodeText(wide)) {
+      EmitDebug("5/7 Direct Unicode replacement could not be sent");
+      return false;
+    }
+    last_correction_original_ = captured_selection_text_;
+    last_correction_replacement_ = wide;
+    last_correction_window_ = correction_window;
+    last_correction_time_ = GetTickCount64();
+    selection_captured_by_ui_automation_ = false;
+    ClearClipboardSnapshot();
+    EmitDebug("6/7 Direct Unicode replacement sent without deleting text first");
+    return true;
+  }
+  if (!OpenClipboardWithRetry(GetHandle())) {
+    EmitDebug("5/7 Paste failed: could not open clipboard");
+    RestoreClipboardSnapshot();
+    return false;
   }
   EmptyClipboard();
   const size_t bytes = (wide.size() + 1) * sizeof(wchar_t);
@@ -1040,19 +1228,34 @@ bool FlutterWindow::PasteReplacement(const std::string& replacement) {
   }
   memcpy(destination, wide.c_str(), bytes);
   GlobalUnlock(memory);
-  SetClipboardData(CF_UNICODETEXT, memory);
+  if (SetClipboardData(CF_UNICODETEXT, memory) == nullptr) {
+    // Per Win32 docs, ownership of |memory| only transfers to the system on
+    // success. On failure the caller retains it and must free it.
+    EmitDebug("5/7 Paste failed: could not set clipboard data");
+    GlobalFree(memory);
+    CloseClipboard();
+    RestoreClipboardSnapshot();
+    return false;
+  }
   CloseClipboard();
   replacement_clipboard_sequence_ = GetClipboardSequenceNumber();
 
   // Explicit deletion avoids Chromium/Electron collapsing a bidi selection
   // and treating Ctrl+V as an insertion at the active visual caret.
-  SendKey(VK_BACK);
-  SendKey(VK_BACK, true);
+  UINT injected_events = 0;
+  constexpr UINT kExpectedInjectedEvents = 6;
+  injected_events += SendKey(VK_BACK);
+  injected_events += SendKey(VK_BACK, true);
   std::this_thread::sleep_for(std::chrono::milliseconds(25));
-  SendKey(VK_CONTROL);
-  SendKey('V');
-  SendKey('V', true);
-  SendKey(VK_CONTROL, true);
+  injected_events += SendKey(VK_CONTROL);
+  injected_events += SendKey('V');
+  injected_events += SendKey('V', true);
+  injected_events += SendKey(VK_CONTROL, true);
+  if (injected_events != kExpectedInjectedEvents) {
+    EmitDebug("5/7 SendInput injected " + std::to_string(injected_events) +
+              " of " + std::to_string(kExpectedInjectedEvents) +
+              " expected backspace/paste events");
+  }
   if (captured_selection_text_.has_value()) {
     last_correction_original_ = *captured_selection_text_;
     last_correction_replacement_ = wide;

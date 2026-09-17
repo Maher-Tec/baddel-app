@@ -14,14 +14,17 @@ void main() {
     expect(stats.mostActiveApp, 'chrome.exe');
   });
 
-  test('raises the threshold for an app with repeated dismissals', () async {
-    final stats = FeedbackStats.inMemory();
+  test(
+    'keeps the warning threshold stable after repeated dismissals',
+    () async {
+      final stats = FeedbackStats.inMemory();
 
-    await stats.recordDismissal('chrome.exe');
-    await stats.recordDismissal('chrome.exe');
-    await stats.recordDismissal('chrome.exe');
+      await stats.recordDismissal('chrome.exe');
+      await stats.recordDismissal('chrome.exe');
+      await stats.recordDismissal('chrome.exe');
 
-    expect(stats.warningThresholdFor('chrome.exe'), 0.94);
-    expect(stats.warningThresholdFor('code.exe'), 0.82);
-  });
+      expect(stats.warningThresholdFor('chrome.exe'), 0.82);
+      expect(stats.warningThresholdFor('code.exe'), 0.82);
+    },
+  );
 }

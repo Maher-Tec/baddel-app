@@ -40,6 +40,15 @@ void main() {
       expect(settings.isDetectionEnabled('notepad.exe'), isFalse);
     });
 
+    test('can reopen onboarding without changing preferences', () async {
+      final settings = AppSettings.inMemory(onboardingComplete: true);
+
+      await settings.restartOnboarding();
+
+      expect(settings.onboardingComplete, isFalse);
+      expect(settings.isDetectionEnabled('notepad.exe'), isTrue);
+    });
+
     test('defaults to Weld El Houma personality and allows switching modes', () async {
       final settings = AppSettings.inMemory();
 

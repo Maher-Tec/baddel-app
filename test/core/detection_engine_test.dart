@@ -31,6 +31,40 @@ void main() {
     expect(result.suggestion, 'herllo my name is maher');
   });
 
+  test('warns for a clear phrase with a short typo and an unknown name', () {
+    const intended = 'hello mny name is maher';
+    final typed = KeyboardLayout.convert(intended, LayoutDirection.usToArabic);
+
+    final result = detector.detect(typed);
+
+    expect(result, isNotNull);
+    expect(result!.shouldWarn, isTrue);
+    expect(result.confidence, greaterThanOrEqualTo(0.82));
+    expect(result.suggestion, intended);
+  });
+
+  test('warns again for a new common phrase after a correction', () {
+    const intended = 'nothing apear next i mean';
+    final typed = KeyboardLayout.convert(intended, LayoutDirection.usToArabic);
+
+    final result = detector.detect(typed);
+
+    expect(result, isNotNull);
+    expect(result!.shouldWarn, isTrue);
+    expect(result.suggestion, intended);
+  });
+
+  test('warns for a common follow-up phrase with small typos', () {
+    const intended = 'im so happy to have you in mmy lige';
+    final typed = KeyboardLayout.convert(intended, LayoutDirection.usToArabic);
+
+    final result = detector.detect(typed);
+
+    expect(result, isNotNull);
+    expect(result!.shouldWarn, isTrue);
+    expect(result.suggestion, intended);
+  });
+
   test('detects Arabic typed while the English layout is active', () {
     const intended = 'مرحبا في من';
     final typed = KeyboardLayout.convert(intended, LayoutDirection.arabicToUs);

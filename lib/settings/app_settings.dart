@@ -21,18 +21,20 @@ class BaddelTargetApp {
   final bool isCustom;
 
   Map<String, dynamic> toJson() => {
-        'processName': processName,
-        'label': label,
-        'category': category,
-        'detectionEnabledByDefault': detectionEnabledByDefault,
-        'isCustom': isCustom,
-      };
+    'processName': processName,
+    'label': label,
+    'category': category,
+    'detectionEnabledByDefault': detectionEnabledByDefault,
+    'isCustom': isCustom,
+  };
 
-  factory BaddelTargetApp.fromJson(Map<String, dynamic> json) => BaddelTargetApp(
+  factory BaddelTargetApp.fromJson(Map<String, dynamic> json) =>
+      BaddelTargetApp(
         processName: json['processName'] as String,
         label: json['label'] as String,
         category: json['category'] as String? ?? 'Custom App',
-        detectionEnabledByDefault: json['detectionEnabledByDefault'] as bool? ?? true,
+        detectionEnabledByDefault:
+            json['detectionEnabledByDefault'] as bool? ?? true,
         isCustom: json['isCustom'] as bool? ?? true,
       );
 }
@@ -47,14 +49,14 @@ class AppSettings extends ChangeNotifier {
     required PersonalityMode personalityMode,
     required KeyboardLayoutProfile layoutProfile,
     required bool developerModeEnabled,
-  })  : _preferences = preferences,
-        _onboardingComplete = onboardingComplete,
-        _detectionPaused = detectionPaused,
-        _detectionEnabledApps = detectionEnabledApps,
-        _customTargetApps = customTargetApps,
-        _personalityMode = personalityMode,
-        _layoutProfile = layoutProfile,
-        _developerModeEnabled = developerModeEnabled;
+  }) : _preferences = preferences,
+       _onboardingComplete = onboardingComplete,
+       _detectionPaused = detectionPaused,
+       _detectionEnabledApps = detectionEnabledApps,
+       _customTargetApps = customTargetApps,
+       _personalityMode = personalityMode,
+       _layoutProfile = layoutProfile,
+       _developerModeEnabled = developerModeEnabled;
 
   static const defaultTargetApps = <BaddelTargetApp>[
     BaddelTargetApp(
@@ -128,9 +130,13 @@ class AppSettings extends ChangeNotifier {
   PersonalityMode get personalityMode => _personalityMode;
   bool get developerModeEnabled => _developerModeEnabled;
   KeyboardLayoutProfile get layoutProfile => _layoutProfile;
-  Set<String> get detectionEnabledApps => Set.unmodifiable(_detectionEnabledApps);
+  Set<String> get detectionEnabledApps =>
+      Set.unmodifiable(_detectionEnabledApps);
 
-  List<BaddelTargetApp> get allTargetApps => [...defaultTargetApps, ..._customTargetApps];
+  List<BaddelTargetApp> get allTargetApps => [
+    ...defaultTargetApps,
+    ..._customTargetApps,
+  ];
 
   static Set<String> get defaultEnabledApps => defaultTargetApps
       .where((app) => app.detectionEnabledByDefault)
@@ -156,14 +162,18 @@ class AppSettings extends ChangeNotifier {
       try {
         final decoded = json.decode(jsonStr) as Map<String, dynamic>;
         customApps.add(BaddelTargetApp.fromJson(decoded));
-      } catch (_) {}
+      } catch (e) {
+        debugPrint('Baddel: skipping corrupt custom app entry: $e');
+      }
     }
 
     return AppSettings._(
       preferences: preferences,
       onboardingComplete: preferences.getBool(_onboardingKey) ?? false,
       detectionPaused: preferences.getBool(_detectionPausedKey) ?? false,
-      detectionEnabledApps: preferences.getStringList(_enabledAppsKey)?.toSet() ?? defaultEnabledApps,
+      detectionEnabledApps:
+          preferences.getStringList(_enabledAppsKey)?.toSet() ??
+          defaultEnabledApps,
       customTargetApps: customApps,
       personalityMode: personalityMode,
       layoutProfile: layoutProfile,
@@ -179,30 +189,48 @@ class AppSettings extends ChangeNotifier {
     PersonalityMode personalityMode = PersonalityMode.weldElHouma,
     KeyboardLayoutProfile layoutProfile = KeyboardLayoutProfile.usQwerty,
     bool developerModeEnabled = false,
-  }) =>
-      AppSettings._(
-        preferences: null,
-        onboardingComplete: onboardingComplete,
-        detectionPaused: detectionPaused,
-        detectionEnabledApps: detectionEnabledApps ?? defaultEnabledApps,
-        customTargetApps: customTargetApps ?? [],
-        personalityMode: personalityMode,
-        layoutProfile: layoutProfile,
-        developerModeEnabled: developerModeEnabled,
-      );
+  }) => AppSettings._(
+    preferences: null,
+    onboardingComplete: onboardingComplete,
+    detectionPaused: detectionPaused,
+    detectionEnabledApps: detectionEnabledApps ?? defaultEnabledApps,
+    customTargetApps: customTargetApps ?? [],
+    personalityMode: personalityMode,
+    layoutProfile: layoutProfile,
+    developerModeEnabled: developerModeEnabled,
+  );
+
+  static String _stripExe(String lowercased) =>
+      lowercased.replaceAll('.exe', '');
+
+  /// Whether [otherRaw] (a process name as stored elsewhere, already
+  /// lowercase but not `.exe`-stripped) refers to the same process as
+  /// [normalized]/[normalizedBase] (the candidate, trimmed+lowercased, with
+  /// and without its `.exe` suffix) — exact match, or a base-name substring
+  /// match in either direction.
+  static bool _matchesProcess(
+    String normalized,
+    String normalizedBase,
+    String otherRaw,
+  ) {
+    final otherBase = _stripExe(otherRaw);
+    return otherRaw == normalized ||
+        (otherBase.isNotEmpty && normalized.contains(otherBase)) ||
+        (normalizedBase.isNotEmpty && otherRaw.contains(normalizedBase));
+  }
 
   bool isTargetApp(String processName) {
     final normalized = processName.toLowerCase().trim();
     if (normalized.isEmpty) return false;
-    final normalizedBase = normalized.replaceAll('.exe', '');
+    final normalizedBase = _stripExe(normalized);
 
-    return allTargetApps.any((app) {
-      final appProc = app.processName.toLowerCase();
-      final appBase = appProc.replaceAll('.exe', '');
-      return appProc == normalized ||
-          (appBase.isNotEmpty && normalized.contains(appBase)) ||
-          (normalizedBase.isNotEmpty && appProc.contains(normalizedBase));
-    });
+    return allTargetApps.any(
+      (app) => _matchesProcess(
+        normalized,
+        normalizedBase,
+        app.processName.toLowerCase(),
+      ),
+    );
   }
 
   bool isDetectionEnabled(String processName) {
@@ -210,19 +238,24 @@ class AppSettings extends ChangeNotifier {
     if (_detectionPaused || sensitiveProcesses.contains(normalized)) {
       return false;
     }
-    final normalizedBase = normalized.replaceAll('.exe', '');
+    final normalizedBase = _stripExe(normalized);
 
-    return _detectionEnabledApps.any((enabledApp) {
-      final enabledBase = enabledApp.replaceAll('.exe', '');
-      return enabledApp == normalized ||
-          (enabledBase.isNotEmpty && normalized.contains(enabledBase)) ||
-          (normalizedBase.isNotEmpty && enabledApp.contains(normalizedBase));
-    });
+    return _detectionEnabledApps.any(
+      (enabledApp) =>
+          _matchesProcess(normalized, normalizedBase, enabledApp),
+    );
   }
 
   Future<void> completeOnboarding() async {
     _onboardingComplete = true;
     await _preferences?.setBool(_onboardingKey, true);
+    notifyListeners();
+  }
+
+  /// Shows the first-run setup guide again without changing saved settings.
+  Future<void> restartOnboarding() async {
+    _onboardingComplete = false;
+    await _preferences?.setBool(_onboardingKey, false);
     notifyListeners();
   }
 
@@ -270,7 +303,9 @@ class AppSettings extends ChangeNotifier {
 
     final newApp = BaddelTargetApp(
       processName: normalized,
-      label: label.trim().isEmpty ? normalized.replaceAll('.exe', '') : label.trim(),
+      label: label.trim().isEmpty
+          ? normalized.replaceAll('.exe', '')
+          : label.trim(),
       category: category,
       detectionEnabledByDefault: true,
       isCustom: true,
@@ -301,7 +336,9 @@ class AppSettings extends ChangeNotifier {
   }
 
   Future<void> _saveCustomApps() async {
-    final jsonList = _customTargetApps.map((app) => json.encode(app.toJson())).toList();
+    final jsonList = _customTargetApps
+        .map((app) => json.encode(app.toJson()))
+        .toList();
     await _preferences?.setStringList(_customAppsKey, jsonList);
   }
 
