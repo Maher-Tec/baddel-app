@@ -52,7 +52,7 @@ class TypingBuffer {
       return true;
     }
     return atWordBoundary &&
-        _value.trim().length >= 8 &&
+        _value.trim().length >= 5 &&
         _value.length > _lastEvaluatedLength;
   }
 

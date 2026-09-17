@@ -991,8 +991,13 @@ std::optional<std::wstring> FlutterWindow::CaptureDetectedText(
   // Select the detected number of words instead; Ctrl+Shift+Left follows text
   // boundaries rather than the visible wrapping. The captured result is still
   // checked against `expected` before any replacement can happen.
+  //
+  // This also applies when UI Automation was available but kFailed to move
+  // the exact calibrated range (long/wrapped selections routinely land here,
+  // not just when the provider is altogether unavailable) - only a genuine
+  // kSelected means the exact range was already found and pasted above.
   const int word_count = CountWords(expected);
-  if (automation_result == UiAutomationSelectionResult::kUnavailable &&
+  if (automation_result != UiAutomationSelectionResult::kSelected &&
       word_count >= 2) {
     SendKey(VK_CONTROL);
     SendKey(VK_SHIFT);

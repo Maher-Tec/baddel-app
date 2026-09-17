@@ -21,6 +21,12 @@
 
 ---
 
+<p align="center">
+  <img src="assets/giff.gif" width="640" alt="Baddel detecting a wrong-layout typo and correcting it with one click" />
+</p>
+
+---
+
 ## What is Baddel?
 
 Everyone who types in more than one language on the same keyboard knows this moment: you start typing, look up, and see `ndrf hgd` instead of `مرحبا` — because your keyboard was still set to the wrong language. Baddel watches for exactly that pattern and offers a one-click fix, entirely on your own machine.

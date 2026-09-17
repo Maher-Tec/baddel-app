@@ -9,6 +9,112 @@ constexpr wchar_t kWarningPopupClass[] = L"BaddelWarningPopup";
 constexpr int kPopupWidth = 420;
 constexpr int kPopupHeight = 244;
 
+// Minimal IDWriteTextRenderer that draws each glyph run through
+// IDWriteFactory2::TranslateColorGlyphRun so color-emoji layers (e.g.
+// Segoe UI Emoji's COLR/CPAL glyphs) render in their real palette colors
+// instead of a single solid text color. Falls back to a plain single-color
+// draw for any run TranslateColorGlyphRun reports has no color layers.
+class ColorGlyphRenderer : public IDWriteTextRenderer {
+ public:
+  ColorGlyphRenderer(IDWriteFactory2* factory,
+                     IDWriteBitmapRenderTarget* target,
+                     IDWriteRenderingParams* rendering_params,
+                     COLORREF fallback_color)
+      : factory_(factory),
+        target_(target),
+        rendering_params_(rendering_params),
+        fallback_color_(fallback_color) {}
+
+  // IUnknown
+  HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void** object) override {
+    if (iid == __uuidof(IUnknown) || iid == __uuidof(IDWritePixelSnapping) ||
+        iid == __uuidof(IDWriteTextRenderer)) {
+      *object = this;
+      return S_OK;
+    }
+    *object = nullptr;
+    return E_NOINTERFACE;
+  }
+  ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+  ULONG STDMETHODCALLTYPE Release() override { return 1; }
+
+  // IDWritePixelSnapping
+  HRESULT STDMETHODCALLTYPE IsPixelSnappingDisabled(void*, BOOL* is_disabled) override {
+    *is_disabled = FALSE;
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetCurrentTransform(void*, DWRITE_MATRIX* transform) override {
+    *transform = {1, 0, 0, 1, 0, 0};
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE GetPixelsPerDip(void*, FLOAT* pixels_per_dip) override {
+    *pixels_per_dip = 1.0f;
+    return S_OK;
+  }
+
+  // IDWriteTextRenderer
+  HRESULT STDMETHODCALLTYPE DrawGlyphRun(
+      void*, FLOAT baseline_x, FLOAT baseline_y,
+      DWRITE_MEASURING_MODE measuring_mode, DWRITE_GLYPH_RUN const* glyph_run,
+      DWRITE_GLYPH_RUN_DESCRIPTION const*, IUnknown*) override {
+    IDWriteColorGlyphRunEnumerator* layers = nullptr;
+    const HRESULT translate_result = factory_->TranslateColorGlyphRun(
+        baseline_x, baseline_y, glyph_run, nullptr, measuring_mode, nullptr,
+        0, &layers);
+    if (translate_result == DWRITE_E_NOCOLOR || layers == nullptr) {
+      return target_->DrawGlyphRun(baseline_x, baseline_y, measuring_mode,
+                                   glyph_run, rendering_params_,
+                                   fallback_color_, nullptr);
+    }
+    if (FAILED(translate_result)) return translate_result;
+
+    HRESULT result = S_OK;
+    for (;;) {
+      BOOL has_run = FALSE;
+      result = layers->MoveNext(&has_run);
+      if (FAILED(result) || !has_run) break;
+
+      const DWRITE_COLOR_GLYPH_RUN* layer = nullptr;
+      result = layers->GetCurrentRun(&layer);
+      if (FAILED(result)) break;
+
+      const COLORREF layer_color =
+          layer->paletteIndex == 0xFFFF
+              ? fallback_color_
+              : RGB(static_cast<BYTE>(layer->runColor.r * 255),
+                    static_cast<BYTE>(layer->runColor.g * 255),
+                    static_cast<BYTE>(layer->runColor.b * 255));
+      result = target_->DrawGlyphRun(
+          layer->baselineOriginX, layer->baselineOriginY, measuring_mode,
+          &layer->glyphRun, rendering_params_, layer_color, nullptr);
+      if (FAILED(result)) break;
+    }
+    layers->Release();
+    return result;
+  }
+  HRESULT STDMETHODCALLTYPE DrawUnderline(void*, FLOAT, FLOAT,
+                                          DWRITE_UNDERLINE const*,
+                                          IUnknown*) override {
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE DrawStrikethrough(void*, FLOAT, FLOAT,
+                                              DWRITE_STRIKETHROUGH const*,
+                                              IUnknown*) override {
+    return S_OK;
+  }
+  HRESULT STDMETHODCALLTYPE DrawInlineObject(void*, FLOAT, FLOAT,
+                                             IDWriteInlineObject*, BOOL, BOOL,
+                                             IUnknown*) override {
+    return S_OK;
+  }
+
+ private:
+  IDWriteFactory2* factory_;
+  IDWriteBitmapRenderTarget* target_;
+  IDWriteRenderingParams* rendering_params_;
+  COLORREF fallback_color_;
+};
+
 // Color palette
 constexpr COLORREF kHeaderBg      = RGB(15,  20,  35);   // deep navy
 constexpr COLORREF kHeaderAccent  = RGB(0,   190, 230);  // cyan accent
@@ -93,6 +199,31 @@ WarningPopup::WarningPopup() {
                               DEFAULT_CHARSET, OUT_DEFAULT_PRECIS,
                               CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
                               DEFAULT_PITCH, L"Segoe UI");
+
+  // DirectWrite setup for color-emoji-aware text (title, buttons). Any
+  // failure here leaves the relevant pointer null; DrawColorText checks for
+  // that and callers fall back to plain GDI DrawTextW, so this can never
+  // break the popup even on a system where DirectWrite is unavailable.
+  if (SUCCEEDED(DWriteCreateFactory(
+          DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory2),
+          reinterpret_cast<IUnknown**>(&dwrite_factory_))) &&
+      dwrite_factory_ != nullptr) {
+    dwrite_factory_->GetGdiInterop(&gdi_interop_);
+    dwrite_factory_->CreateRenderingParams(&dwrite_rendering_params_);
+    if (gdi_interop_ != nullptr) {
+      gdi_interop_->CreateBitmapRenderTarget(nullptr, kPopupWidth,
+                                             kPopupHeight,
+                                             &dwrite_bitmap_target_);
+    }
+    dwrite_factory_->CreateTextFormat(
+        L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_BOLD,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 16.0f, L"",
+        &dwrite_title_format_);
+    dwrite_factory_->CreateTextFormat(
+        L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_BOLD,
+        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 13.0f, L"",
+        &dwrite_button_format_);
+  }
 }
 
 WarningPopup::~WarningPopup() {
@@ -101,6 +232,13 @@ WarningPopup::~WarningPopup() {
   DeleteObject(body_font_);
   DeleteObject(label_font_);
   DeleteObject(button_font_);
+
+  if (dwrite_button_format_ != nullptr) dwrite_button_format_->Release();
+  if (dwrite_title_format_ != nullptr) dwrite_title_format_->Release();
+  if (dwrite_bitmap_target_ != nullptr) dwrite_bitmap_target_->Release();
+  if (dwrite_rendering_params_ != nullptr) dwrite_rendering_params_->Release();
+  if (gdi_interop_ != nullptr) gdi_interop_->Release();
+  if (dwrite_factory_ != nullptr) dwrite_factory_->Release();
 }
 
 void WarningPopup::SetActionHandler(ActionHandler handler) {
@@ -151,6 +289,47 @@ bool WarningPopup::Show(const std::wstring& title,
 
 void WarningPopup::Hide() {
   if (window_ != nullptr) ShowWindow(window_, SW_HIDE);
+}
+
+bool WarningPopup::DrawColorText(HDC dc, const RECT& rect,
+                                 const std::wstring& text,
+                                 IDWriteTextFormat* format, COLORREF color,
+                                 DWRITE_TEXT_ALIGNMENT align,
+                                 DWRITE_PARAGRAPH_ALIGNMENT valign,
+                                 DWRITE_WORD_WRAPPING wrapping) {
+  if (dwrite_factory_ == nullptr || dwrite_bitmap_target_ == nullptr ||
+      format == nullptr || text.empty()) {
+    return false;
+  }
+
+  IDWriteTextLayout* layout = nullptr;
+  const HRESULT layout_result = dwrite_factory_->CreateTextLayout(
+      text.c_str(), static_cast<UINT32>(text.size()), format,
+      static_cast<FLOAT>(rect.right - rect.left),
+      static_cast<FLOAT>(rect.bottom - rect.top), &layout);
+  if (FAILED(layout_result) || layout == nullptr) return false;
+
+  layout->SetTextAlignment(align);
+  layout->SetParagraphAlignment(valign);
+  layout->SetWordWrapping(wrapping);
+
+  // The bitmap render target owns its own private surface, not `dc`'s
+  // bitmap, so copy the popup's current painted content into it first —
+  // otherwise the color glyph layers would composite onto a blank surface
+  // and erase whatever is already drawn behind the text.
+  HDC target_dc = dwrite_bitmap_target_->GetMemoryDC();
+  BitBlt(target_dc, 0, 0, kPopupWidth, kPopupHeight, dc, 0, 0, SRCCOPY);
+
+  ColorGlyphRenderer renderer(dwrite_factory_, dwrite_bitmap_target_,
+                              dwrite_rendering_params_, color);
+  const HRESULT draw_result =
+      layout->Draw(nullptr, &renderer, static_cast<FLOAT>(rect.left),
+                   static_cast<FLOAT>(rect.top));
+  layout->Release();
+  if (FAILED(draw_result)) return false;
+
+  BitBlt(dc, 0, 0, kPopupWidth, kPopupHeight, target_dc, 0, 0, SRCCOPY);
+  return true;
 }
 
 LRESULT CALLBACK WarningPopup::WindowProc(HWND window, UINT message,
@@ -256,8 +435,13 @@ void WarningPopup::Paint(HWND window) {
       title_.empty()
           ? L"Baddel! \U0001F602 \u0646\u0633\u064A\u062A \u0627\u0644\u0643\u0644\u0627\u0641\u064A\u064A\u061F"
           : title_;
-  DrawTextW(dc, display_title.c_str(), -1, &title_rect,
-            DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
+  if (!DrawColorText(dc, title_rect, display_title, dwrite_title_format_,
+                     RGB(235, 240, 255), DWRITE_TEXT_ALIGNMENT_LEADING,
+                     DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+                     DWRITE_WORD_WRAPPING_WRAP)) {
+    DrawTextW(dc, display_title.c_str(), -1, &title_rect,
+              DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS);
+  }
 
   // ── Drag grip (top-right corner of header) ────────────────────────────────
   SetTextColor(dc, RGB(80, 105, 130));
@@ -308,18 +492,35 @@ void WarningPopup::Paint(HWND window) {
 
   // Fix label
   SetTextColor(dc, RGB(255, 255, 255));
-  DrawTextW(dc, L"\U0001F680 Correct it", -1, &fix_button_,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+  if (!DrawColorText(dc, fix_button_, L"\U0001F680 Correct it",
+                     dwrite_button_format_, RGB(255, 255, 255),
+                     DWRITE_TEXT_ALIGNMENT_CENTER,
+                     DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                     DWRITE_WORD_WRAPPING_NO_WRAP)) {
+    DrawTextW(dc, L"\U0001F680 Correct it", -1, &fix_button_,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+  }
 
   // Dismiss label
   SetTextColor(dc, kDismissText);
-  DrawTextW(dc, L"\U0001F648 5allini", -1, &dismiss_button_,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+  if (!DrawColorText(dc, dismiss_button_, L"\U0001F648 5allini",
+                     dwrite_button_format_, kDismissText,
+                     DWRITE_TEXT_ALIGNMENT_CENTER,
+                     DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                     DWRITE_WORD_WRAPPING_NO_WRAP)) {
+    DrawTextW(dc, L"\U0001F648 5allini", -1, &dismiss_button_,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+  }
 
   // Pause label
   SetTextColor(dc, kPauseText);
-  DrawTextW(dc, L"\u23F8 Pause", -1, &pause_button_,
-            DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+  if (!DrawColorText(dc, pause_button_, L"\u23F8 Pause", dwrite_button_format_,
+                     kPauseText, DWRITE_TEXT_ALIGNMENT_CENTER,
+                     DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
+                     DWRITE_WORD_WRAPPING_NO_WRAP)) {
+    DrawTextW(dc, L"\u23F8 Pause", -1, &pause_button_,
+              DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+  }
 
   // ── Blit double buffer → screen ───────────────────────────────────────────
   BitBlt(real_dc, 0, 0, kPopupWidth, kPopupHeight, dc, 0, 0, SRCCOPY);

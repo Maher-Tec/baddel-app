@@ -3,9 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:badeli/core/typing_buffer.dart';
 
 void main() {
-  test('evaluates at a word boundary after eight characters', () {
+  test('evaluates at a word boundary after five characters', () {
     final buffer = TypingBuffer();
-    buffer.append('abcdefgh');
+    buffer.append('abcde');
 
     expect(buffer.shouldEvaluate(atWordBoundary: false), isFalse);
     buffer.append(' ');

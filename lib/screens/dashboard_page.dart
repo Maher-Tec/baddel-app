@@ -28,6 +28,7 @@ import '../widgets/dashboard/personality_choice.dart';
 import '../widgets/dashboard/quick_status_card.dart';
 import '../widgets/dashboard/section_intro.dart';
 import '../widgets/dashboard/status_metric_chip.dart';
+import '../widgets/baddel_toast.dart';
 
 class HookTestPage extends StatefulWidget {
   const HookTestPage({
@@ -56,9 +57,7 @@ class _HookTestPageState extends State<HookTestPage>
       enableDesktopShell: widget.enableDesktopShell,
       onShowMessage: (message) {
         if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(message)));
+        showBaddelToast(context, message);
       },
     )..addListener(_onControllerChanged);
     if (widget.enableDesktopShell) {
@@ -1671,12 +1670,10 @@ class _HookTestPageState extends State<HookTestPage>
                                     Clipboard.setData(
                                       ClipboardData(text: _controller.testConvertedOutput),
                                     );
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Copied converted text to clipboard!',
-                                        ),
-                                      ),
+                                    showBaddelToast(
+                                      context,
+                                      'Copied converted text to clipboard!',
+                                      icon: Icons.copy_rounded,
                                     );
                                   },
                                   icon: const Icon(

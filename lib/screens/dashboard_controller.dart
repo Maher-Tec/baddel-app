@@ -257,7 +257,7 @@ class DashboardController extends ChangeNotifier {
 
     _detectionPauseTimer?.cancel();
     if (_typingBuffer.length >= 4) {
-      _detectionPauseTimer = Timer(const Duration(milliseconds: 1500), () {
+      _detectionPauseTimer = Timer(const Duration(milliseconds: 900), () {
         if (!_disposed) _evaluateTypingBuffer('pause');
       });
     }
@@ -300,7 +300,13 @@ class DashboardController extends ChangeNotifier {
     }
 
     final percent = (result.confidence * 100).round();
-    if (result.shouldWarn) {
+    // Only treat this as a *new* mistake (bump the streak, pick a fresh
+    // personality message) the first time this warning becomes active.
+    // Re-evaluating the same ongoing warning on every subsequent keystroke
+    // must not re-trigger either, or the streak inflates within seconds of
+    // continuous typing and the popup message changes on every character.
+    final isNewWarning = result.shouldWarn && !hadActiveWarning;
+    if (isNewWarning) {
       final now = DateTime.now();
       if (_lastMistakeTime != null &&
           now.difference(_lastMistakeTime!) < const Duration(seconds: 90)) {
@@ -314,12 +320,14 @@ class DashboardController extends ChangeNotifier {
       );
       _lastMistakeTime = now;
     }
-    final funnyTitle = TunisianPersonality.getMessage(
-      mode: settings.personalityMode,
-      suggestedLanguage: result.suggestedLanguage,
-      typedLength: bufferedText.length,
-      streak: _consecutiveMistakeStreak,
-    );
+    final funnyTitle = isNewWarning || _lastWarningTitle == null
+        ? TunisianPersonality.getMessage(
+            mode: settings.personalityMode,
+            suggestedLanguage: result.suggestedLanguage,
+            typedLength: bufferedText.length,
+            streak: _consecutiveMistakeStreak,
+          )
+        : _lastWarningTitle!;
     _addDebugMessage(
       'Phase 3 detector ($trigger): $percent% confidence, ${result.shouldWarn ? 'warning' : 'no warning'}',
     );
@@ -370,6 +378,21 @@ class DashboardController extends ChangeNotifier {
     int selectionUnits = 0,
     int trailingUnits = 0,
   }) async {
+    // A failed attempt here means the detected text can never be corrected
+    // by retrying with the same stale detection (the app/window/caret has
+    // already moved on) — so on any failure below, drop the dead detection
+    // state instead of leaving it stuck, or the next real mistake won't get
+    // a fresh popup.
+    void giveUpOnDetection(String debugMessage, String userMessage) {
+      _addDebugMessage(debugMessage);
+      if (detection != null) {
+        _invalidateActiveWarning();
+        _detectionPauseTimer?.cancel();
+        _typingBuffer.reset();
+      }
+      if (!_disposed) onShowMessage?.call(userMessage);
+    }
+
     try {
       final selected = detection == null
           ? await _hook.captureSelection()
@@ -378,8 +401,20 @@ class DashboardController extends ChangeNotifier {
               selectionUnits: selectionUnits,
               trailingUnits: trailingUnits,
             );
-      if (selected.isEmpty) return;
-      if (detection != null && selected != detection.original) return;
+      if (selected.isEmpty) {
+        giveUpOnDetection(
+          '2/7 Correction refused: no matching text selection found',
+          "Baddel couldn't find the exact text to fix — make sure the app is still focused and try again.",
+        );
+        return;
+      }
+      if (detection != null && selected != detection.original) {
+        giveUpOnDetection(
+          '2/7 Correction refused: selected text did not match the detected phrase',
+          "Baddel couldn't safely select the exact text to fix — try selecting it manually.",
+        );
+        return;
+      }
       _addDebugMessage(
         '2/7 Selection text returned to Flutter (${selected.length} chars)',
       );
@@ -402,12 +437,16 @@ class DashboardController extends ChangeNotifier {
         notifyListeners();
       }
       if (!pasted && !_disposed) {
-        onShowMessage?.call('Baddel could not replace the selection.');
+        giveUpOnDetection(
+          '2/7 Correction refused: paste failed',
+          'Baddel could not replace the selection.',
+        );
       }
     } on PlatformException catch (error) {
-      if (!_disposed) {
-        onShowMessage?.call(error.message ?? 'No text selection found.');
-      }
+      final userMessage = error.code == 'DETECTION_CHANGED'
+          ? "You switched apps before Baddel could fix that, so the warning was cleared."
+          : (error.message ?? 'No text selection found.');
+      giveUpOnDetection('2/7 Correction refused: ${error.message}', userMessage);
     }
   }
 
